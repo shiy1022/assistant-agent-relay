@@ -1,0 +1,22 @@
+# Slack app for agent-runner. Create it in the PJTTY workspace only:
+# api.slack.com/apps → Create New App → From a manifest → pick PJTTY → paste this.
+#
+# It asks for user token scopes only, so it acts as you (a dot only answers its
+# owner) and has no bot of its own. Nothing here lets it read channels or other
+# people's DMs: im:history covers DMs, and the runner opens only the DMs with
+# agents in config/agents.yaml.
+display_information:
+  name: agent-runner
+  description: Sends Assistant Bench prompts to your agents from your account and records their replies.
+oauth_config:
+  scopes:
+    user:
+      - chat:write    # send as you
+      - im:history    # read the DM with the agent, including thread replies
+      - im:write      # open that DM
+      - users:read    # find the agent's member ID
+      - files:read    # download files the agent sends (optional)
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

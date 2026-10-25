@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Runs Assistant Bench tasks against iMessage agents and records their replies."
 requires-python = ">=3.12"
 dependencies = [
+    "playwright>=1.64.1",
     "pyyaml>=6",
     "qrcode>=8",
     "telethon>=1.45,<2",

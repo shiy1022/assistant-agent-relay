@@ -11,6 +11,8 @@
     bench whatsapp-link                   link it to your WhatsApp by QR code, then start it
     bench whatsapp-status                 is it running, linked and recording?
     bench whatsapp-unlink                 log it out of WhatsApp and delete its session
+    bench slack-login                     sign the dedicated Chrome in to the Slack workspace (for send_via: web)
+    bench slack-status                    check the Slack token, workspace and agents without sending
     bench reader-status                   (iMessage, parked) is bench-reader running?
 """
 
@@ -95,6 +97,11 @@ def run_telegram(work, agents: list[Agent]) -> None:
     asyncio.run(main())
 
 
+def slack_channel(agent: Agent):
+    from bench.channels.slack import SlackChannel
+    return SlackChannel([agent], on_event=print_event)
+
+
 def cmd_agents(args: argparse.Namespace) -> None:
     agents = load_agents()
     if not agents:
@@ -124,6 +131,12 @@ def cmd_send(args: argparse.Namespace) -> None:
         finally:
             if args.listen:
                 whatsapp.set_online(False)
+    elif agent.channel == "slack":
+        with slack_channel(agent) as slack:
+            slack.sync()
+            slack.send(agent, args.text)
+            if args.listen:
+                slack.listen(args.listen)
     elif agent.channel == "imessage":
         from bench.imessage.send import send
         requested_at = send(agent, args.text)
@@ -147,6 +160,12 @@ def cmd_listen(args: argparse.Namespace) -> None:
         finally:
             whatsapp.set_online(False)
         return
+    if agent and agent.channel == "slack":
+        with slack_channel(agent) as slack:
+            slack.sync()
+            print(recording_message(args.seconds), flush=True)
+            slack.listen(args.seconds)
+        return
 
     async def work(telegram):
         await telegram.sync()
@@ -158,6 +177,10 @@ def cmd_listen(args: argparse.Namespace) -> None:
 def cmd_sync(args: argparse.Namespace) -> None:
     if args.agent and get_agent(args.agent).channel == "whatsapp":
         print("bench-whatsapp records WhatsApp continuously, so there's nothing to sync. See: uv run bench inbox")
+        return
+    if args.agent and get_agent(args.agent).channel == "slack":
+        with slack_channel(get_agent(args.agent)) as slack:
+            print(f"{slack.sync()} events recorded")
         return
 
     async def work(telegram):
@@ -219,6 +242,16 @@ def cmd_whatsapp_unlink(args: argparse.Namespace) -> None:
     print("Logged bench-whatsapp out of WhatsApp and deleted its session. Recorded messages are kept.")
 
 
+def cmd_slack_login(args: argparse.Namespace) -> None:
+    from bench.channels.slack import sign_in
+    print(sign_in(list(load_agents().values())))
+
+
+def cmd_slack_status(args: argparse.Namespace) -> None:
+    from bench.channels.slack import status
+    print(status(list(load_agents().values())))
+
+
 def cmd_reader_status(args: argparse.Namespace) -> None:
     result = subprocess.run(
         ["launchctl", "print", f"gui/{os.getuid()}/{READER_LABEL}"], capture_output=True, text=True
@@ -262,15 +295,18 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("whatsapp-link").set_defaults(func=cmd_whatsapp_link)
     sub.add_parser("whatsapp-status").set_defaults(func=cmd_whatsapp_status)
     sub.add_parser("whatsapp-unlink").set_defaults(func=cmd_whatsapp_unlink)
+    sub.add_parser("slack-login").set_defaults(func=cmd_slack_login)
+    sub.add_parser("slack-status").set_defaults(func=cmd_slack_status)
     sub.add_parser("reader-status").set_defaults(func=cmd_reader_status)
 
     args = parser.parse_args(argv)
+    from bench.channels.slack import SlackError
     from bench.channels.telegram import TelegramError
     from bench.channels.whatsapp import WhatsAppError
     from bench.imessage.send import SendError
     try:
         args.func(args)
-    except (ConfigError, ChannelError, SendError, TelegramError, WhatsAppError) as e:
+    except (ConfigError, ChannelError, SendError, SlackError, TelegramError, WhatsAppError) as e:
         print(f"bench: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

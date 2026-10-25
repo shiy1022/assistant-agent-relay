@@ -5,9 +5,21 @@
 #   telegram  the agent's Telegram username, like @fo_example
 #   whatsapp  the agent's WhatsApp number with country code, like +15551234567,
 #             or a bot ID for Meta's own agents, like 1807055946647697@bot
+#   slack     the agent's Slack member ID, like U07ABCDEF (its profile in Slack →
+#             ⋮ → Copy member ID), or the @name it goes by in the workspace
 #   imessage  phone number or email (parked; bench-reader is compiled from these
 #             handles, so changing one means reader/install.sh and re-approving it)
 # Agents left blank are skipped.
+
+# The one Slack workspace agent-runner may use, by name or by its address
+# (pjtty for pjtty.slack.com). A Slack token for any other workspace is refused
+# before anything is read or sent.
+slack:
+  workspace: PJTTY
+  # api: post through Slack's API. web: type into Slack's web client in the
+  # dedicated Chrome, because the dot ignores messages Slack marks as sent by an
+  # app. Replies are read through the API either way.
+  send_via: web
 
 defaults:
   quiet_period_seconds: 90   # a reply counts as finished after this long with nothing new
@@ -25,3 +37,8 @@ agents:
   instinct:
     channel: whatsapp
     handle: ""               # once you have access
+  dots:
+    channel: slack
+    handle: "U0CBGVDR955"    # yschore-dot in PJTTY (not the separate ChatGPT app, U0CC083J1PT)
+    quiet_period_seconds: 120
+    max_wait_seconds: 1800
