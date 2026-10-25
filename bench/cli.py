@@ -2,9 +2,11 @@
 
     bench agents                          list agents that have a handle, and their channels
     bench send AGENT TEXT [--listen S]    send one message (then keep recording for S seconds)
+    bench send AGENT --file PATH          send a file's contents exactly, e.g. a task prompt
     bench listen [AGENT] [--seconds S]    catch up, then record live until Ctrl-C (or S seconds)
     bench sync [AGENT]                    record whatever arrived or changed since last time
     bench inbox [--agent A] [--follow]    show what's been recorded
+    bench dashboard [--out PATH] [--open] write a web page of every recorded conversation
     bench telegram-login                  link this Mac to your Telegram account by QR code
     bench telegram-logout                 end that session and delete it
     bench whatsapp-install                build bench-whatsapp and install it in the background
@@ -116,6 +118,10 @@ def cmd_agents(args: argparse.Namespace) -> None:
 
 def cmd_send(args: argparse.Namespace) -> None:
     agent = get_agent(args.agent)
+    if args.file:
+        args.text = Path(args.file).read_text()  # exactly as written, with no shell quoting in between
+    if not args.text:
+        raise ChannelError("give the message as TEXT or with --file")
     if agent.channel == "telegram":
         async def work(telegram):
             await telegram.sync()
@@ -209,6 +215,14 @@ def cmd_inbox(args: argparse.Namespace) -> None:
                     print_event(event)
 
 
+def cmd_dashboard(args: argparse.Namespace) -> None:
+    from bench import dashboard
+    path = dashboard.write(Path(args.out).expanduser().resolve() if args.out else dashboard.OUT)
+    print(f"Wrote {path}")
+    if args.open:
+        subprocess.run(["open", str(path)])
+
+
 def cmd_telegram_login(args: argparse.Namespace) -> None:
     from bench.channels.telegram import login
     name = asyncio.run(login())
@@ -293,7 +307,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("agents").set_defaults(func=cmd_agents)
     p = sub.add_parser("send")
     p.add_argument("agent")
-    p.add_argument("text")
+    p.add_argument("text", nargs="?")
+    p.add_argument("--file", help="send this file's contents instead of TEXT")
     p.add_argument("--listen", type=float, metavar="SECONDS", help="keep recording replies this long after sending")
     p.set_defaults(func=cmd_send)
     p = sub.add_parser("listen")
@@ -308,6 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--follow", "-f", action="store_true")
     p.add_argument("--last", type=int, default=20, help="how many past events to show (default 20)")
     p.set_defaults(func=cmd_inbox)
+    p = sub.add_parser("dashboard")
+    p.add_argument("--out", help="where to write it (default data/dashboard.html)")
+    p.add_argument("--open", action="store_true", help="open it in your browser afterwards")
+    p.set_defaults(func=cmd_dashboard)
     sub.add_parser("telegram-login").set_defaults(func=cmd_telegram_login)
     sub.add_parser("telegram-logout").set_defaults(func=cmd_telegram_logout)
     sub.add_parser("whatsapp-install").set_defaults(func=cmd_whatsapp_install)

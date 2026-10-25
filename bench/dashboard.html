@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Conversations</title>
+<!-- Template for `bench dashboard` (bench/dashboard.py), which fills in the recorded data. -->
+<style>
+:root {
+  --bg: #f5f5f2;
+  --surface: #ffffff;
+  --surface-2: #efeeea;
+  --border: #e2e0da;
+  --text: #1c1c1a;
+  --muted: #66655f;
+  --faint: #97958d;
+  --me: #2d56c9;
+  --me-text: #ffffff;
+  --me-link: #dfe7ff;
+  --telegram: #2384c6;
+  --whatsapp: #178a4e;
+  --slack: #8a3a8f;
+  --imessage: #2f6fe0;
+  --mark: #ffe17a;
+  --danger: #b8402c;
+  --shadow: 0 1px 2px rgba(20, 20, 15, 0.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413;
+    --surface: #1e1e1c;
+    --surface-2: #262623;
+    --border: #34332f;
+    --text: #ecebe6;
+    --muted: #a6a49c;
+    --faint: #7a7870;
+    --me: #3b63d6;
+    --me-text: #ffffff;
+    --me-link: #dfe7ff;
+    --telegram: #4aa6e6;
+    --whatsapp: #3cc07a;
+    --slack: #cf86d4;
+    --imessage: #5b92ff;
+    --mark: #806b12;
+    --danger: #ef7a62;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141413;
+  --surface: #1e1e1c;
+  --surface-2: #262623;
+  --border: #34332f;
+  --text: #ecebe6;
+  --muted: #a6a49c;
+  --faint: #7a7870;
+  --me: #3b63d6;
+  --me-text: #ffffff;
+  --me-link: #dfe7ff;
+  --telegram: #4aa6e6;
+  --whatsapp: #3cc07a;
+  --slack: #cf86d4;
+  --imessage: #5b92ff;
+  --mark: #806b12;
+  --danger: #ef7a62;
+  --shadow: none;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+.wrap { max-width: 920px; margin: 0 auto; padding: 28px 16px 64px; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin-bottom: 20px; }
+header.top h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+header.top .as-of { color: var(--muted); font-size: 13px; }
+
+.tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tab {
+  text-align: left; cursor: pointer; font: inherit; color: inherit;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; box-shadow: var(--shadow); display: flex; gap: 12px; align-items: center;
+}
+.tab:hover { border-color: var(--faint); }
+.tab[aria-selected="true"] { border-color: var(--ch); box-shadow: 0 0 0 1px var(--ch) inset; }
+.tab .who { min-width: 0; }
+.tab .name { font-weight: 600; }
+.tab .sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.avatar {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 650; font-size: 15px;
+  background: color-mix(in srgb, var(--ch) 16%, transparent); color: var(--ch);
+}
+.ch-telegram { --ch: var(--telegram); }
+.ch-whatsapp { --ch: var(--whatsapp); }
+.ch-slack { --ch: var(--slack); }
+.ch-imessage { --ch: var(--imessage); }
+.chip {
+  display: inline-block; font-size: 12px; font-weight: 550; padding: 1px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ch, var(--faint)) 14%, transparent); color: var(--ch, var(--muted));
+}
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+.agent-head { padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.agent-head .title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.agent-head h2 { margin: 0; font-size: 18px; font-weight: 650; }
+.agent-head .handle { color: var(--muted); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 14px; }
+.stat .label { color: var(--muted); font-size: 12px; }
+.stat .value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .value.small { font-size: 14px; font-weight: 550; }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.toolbar input[type="search"] {
+  flex: 1 1 220px; min-width: 0; font: inherit; font-size: 14px; color: var(--text);
+  background: var(--surface-2); border: 1px solid transparent; border-radius: 8px; padding: 7px 10px;
+}
+.toolbar input[type="search"]:focus { outline: none; border-color: var(--faint); }
+.toolbar label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
+.toolbar .count { color: var(--faint); font-size: 13px; margin-left: auto; }
+
+.thread { padding: 8px 18px 22px; }
+.day { text-align: center; margin: 18px 0 10px; }
+.day span { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); padding: 3px 10px; border-radius: 999px; }
+.run { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; color: var(--muted); font-size: 12.5px; }
+.run::before, .run::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
+.run strong { color: var(--text); font-weight: 600; }
+
+.msg { display: flex; flex-direction: column; margin: 6px 0; }
+.msg.me { align-items: flex-end; }
+.msg.agent { align-items: flex-start; }
+.bubble {
+  max-width: min(640px, 86%); padding: 8px 12px; border-radius: 16px; overflow-wrap: anywhere;
+}
+.msg.agent .bubble { background: var(--surface-2); border-bottom-left-radius: 5px; }
+.msg.me .bubble { background: var(--me); color: var(--me-text); border-bottom-right-radius: 5px; }
+.msg.me .bubble a { color: var(--me-link); }
+.bubble a { color: var(--ch); }
+.text { white-space: pre-wrap; }
+.text.empty { color: var(--faint); font-style: italic; }
+.msg.me .text.empty { color: var(--me-link); }
+.msg.deleted .text { text-decoration: line-through; opacity: 0.7; }
+.quote {
+  font-size: 13px; padding: 4px 8px; margin-bottom: 6px; border-left: 3px solid currentColor;
+  opacity: 0.75; white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+.preview { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; }
+.msg.me .preview { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); }
+.preview .site { color: var(--muted); font-size: 12px; }
+.msg.me .preview .site { color: var(--me-link); }
+.preview .ptitle { font-weight: 600; }
+.buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.buttons span { font-size: 13px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ch); }
+.files { margin-top: 6px; font-size: 13px; }
+.files a, .files span { display: inline-block; margin-right: 10px; }
+.reactions { margin-top: 3px; font-size: 13px; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--faint); margin-top: 3px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.meta .latency { color: var(--ch); font-weight: 550; }
+.meta .warn { color: var(--danger); }
+.detail { display: none; }
+.show-details .detail { display: inline; }
+.typing { font-size: 12.5px; color: var(--faint); margin: 4px 0 4px 4px; font-style: italic; }
+mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+.empty-state { padding: 48px 18px; text-align: center; color: var(--muted); }
+footer { margin-top: 22px; color: var(--muted); font-size: 13px; }
+footer ul { margin: 6px 0 10px; padding-left: 18px; }
+footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+
+@media (max-width: 560px) {
+  .wrap { padding-top: 20px; }
+  .bubble { max-width: 92%; }
+  .toolbar .count { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Agent conversations</h1>
+    <div class="as-of" id="as-of"></div>
+  </header>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <section class="panel" id="panel"></section>
+  <footer id="footer"></footer>
+</div>
+
+<script id="data" type="application/json">__DASHBOARD_DATA__</script>
+<script>
+(() => {
+  const data = JSON.parse(document.getElementById('data').textContent);
+  const CHANNELS = { telegram: 'Telegram', whatsapp: 'WhatsApp', slack: 'Slack', imessage: 'iMessage' };
+  const label = name => name.charAt(0).toUpperCase() + name.slice(1);
+
+  let details = false;
+  try { details = localStorage.getItem('dashboard.details') === '1'; } catch (e) {}
+  let query = '';
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const d = iso => new Date(iso);
+  const time = iso => d(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const day = iso => d(iso).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+  const dateTime = iso => d(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const sameDay = (a, b) => d(a).toDateString() === d(b).toDateString();
+  const when = iso => {
+    if (!iso) return '—';
+    return sameDay(iso, data.generated_at) ? time(iso) : dateTime(iso);
+  };
+  const duration = s => {
+    if (s == null) return '—';
+    s = Math.round(s);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's';
+    return Math.floor(s / 3600) + 'h ' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') + 'm';
+  };
+  const gap = (a, b) => (d(b) - d(a)) / 1000;
+
+  // WhatsApp and Slack mark bold with *…*; links become clickable everywhere.
+  function format(text, channel) {
+    let h = esc(text);
+    if (channel === 'whatsapp' || channel === 'slack') h = h.replace(/\*{1,2}([^*\n]+?)\*{1,2}/g, '<strong>$1</strong>');
+    return h.replace(/https?:\/\/[^\s<]+/g, url => {
+      const trail = (url.match(/(?:[.,;:!?)\]]|&quot;|&#39;)+$/) || [''])[0];
+      const href = url.slice(0, url.length - trail.length);
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>${trail}`;
+    });
+  }
+
+  const searchable = m => [m.text, m.link_preview && m.link_preview.title, m.link_preview && m.link_preview.url,
+    ...(m.buttons || []).flat().map(b => b.text), ...(m.attachments || []).map(a => a.name)]
+    .filter(Boolean).join('\n').toLowerCase();
+
+  function highlight(root, q) {
+    if (!q) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      const lower = node.nodeValue.toLowerCase();
+      if (!lower.includes(q)) continue;
+      const frag = document.createDocumentFragment();
+      let i = 0, j;
+      while ((j = lower.indexOf(q, i)) !== -1) {
+        frag.append(node.nodeValue.slice(i, j));
+        const mark = document.createElement('mark');
+        mark.textContent = node.nodeValue.slice(j, j + q.length);
+        frag.append(mark);
+        i = j + q.length;
+      }
+      frag.append(node.nodeValue.slice(i));
+      node.replaceWith(frag);
+    }
+  }
+
+  // The chosen agent lives here, and in the URL's #hash where the browser allows it.
+  let selected = decodeURIComponent(location.hash.slice(1));
+
+  function current() {
+    return data.agents.find(a => a.name === selected)
+      || data.agents.find(a => a.items.some(i => i.type === 'message'))
+      || data.agents[0];
+  }
+
+  function renderTabs(agent) {
+    document.getElementById('tabs').innerHTML = data.agents.map(a => {
+      const n = a.stats.sent + a.stats.received;
+      const sub = `${CHANNELS[a.channel] || a.channel} · ${n} message${n === 1 ? '' : 's'}` + (a.stats.last ? ` · last ${when(a.stats.last)}` : '');
+      return `<button class="tab ch-${esc(a.channel)}" role="tab" aria-selected="${a === agent}" data-agent="${esc(a.name)}">
+        <span class="avatar">${esc(label(a.name).charAt(0))}</span>
+        <span class="who"><div class="name">${esc(label(a.name))}</div><div class="sub">${esc(sub)}</div></span>
+      </button>`;
+    }).join('');
+  }
+
+  function messageHTML(m, agent) {
+    const parts = [];
+    if (m.reply_to_text) parts.push(`<div class="quote">${esc(m.reply_to_text)}</div>`);
+    parts.push(m.text
+      ? `<div class="text">${format(m.text, agent.channel)}</div>`
+      : `<div class="text empty">${m.attachments.length ? '' : 'no text recorded'}</div>`);
+    const p = m.link_preview;
+    if (p && (p.title || p.site)) {
+      parts.push(`<div class="preview">${p.site ? `<div class="site">${esc(p.site)}</div>` : ''}${p.title ? `<div class="ptitle">${esc(p.title)}</div>` : ''}${p.description ? `<div>${esc(p.description)}</div>` : ''}</div>`);
+    }
+    if (m.buttons && m.buttons.length) {
+      parts.push(`<div class="buttons">${m.buttons.flat().map(b => `<span title="${esc(b.kind || '')}">${esc(b.text)}</span>`).join('')}</div>`);
+    }
+    if (m.attachments.length) {
+      parts.push(`<div class="files">${m.attachments.map(a => a.url
+        ? `<a href="${esc(a.url)}">📎 ${esc(a.name)}</a>`
+        : `<span>📎 ${esc(a.name)} (not downloaded)</span>`).join('')}</div>`);
+    }
+
+    const meta = [`<span title="${esc(d(m.date).toString())}">${time(m.date)}</span>`];
+    if (m.reply_seconds != null) meta.push(`<span class="latency" title="Time since your last message">replied in ${duration(m.reply_seconds)}</span>`);
+    if (m.date_deleted || m.date_retracted) meta.push(`<span class="warn">deleted ${time(m.date_deleted || m.date_retracted)}</span>`);
+    if (m.from_me) {
+      if (m.date_read) meta.push(`<span class="detail">read ${time(m.date_read)}</span>`);
+      else if (m.read) meta.push(`<span class="detail">read</span>`);
+      else if (m.date_delivered) meta.push(`<span class="detail">delivered ${time(m.date_delivered)}</span>`);
+      else meta.push(`<span class="detail">no read receipt</span>`);
+    }
+    if (m.versions > 1) {
+      const span = m.date_edited ? ` over ${duration(gap(m.date, m.date_edited))}` : '';
+      meta.push(`<span class="detail" title="Distinct versions of the text that were recorded">${m.versions} versions${span}</span>`);
+    } else if (m.date_edited) {
+      meta.push(`<span class="detail">edited ${time(m.date_edited)}</span>`);
+    }
+    if (m.rich) meta.push(`<span class="detail" title="A formatted message (Telegram rich message, Slack blocks), turned into plain text">rich message</span>`);
+    if (m.rich_media) meta.push(`<span class="detail">${m.rich_media} photo/file${m.rich_media === 1 ? '' : 's'} not downloaded</span>`);
+    if (m.decoded) meta.push(`<span class="detail" title="Text read from the raw rich response, which was recorded before the bridge decoded it">decoded from raw</span>`);
+    if (gap(m.date, m.recorded) > 120) meta.push(`<span class="detail" title="When the pipeline first saw it">recorded ${when(m.recorded)}</span>`);
+
+    const reactions = (m.reactions || []).map(r => r.count != null ? `${esc(r.emoji)} ×${r.count}` : `${esc(r.emoji)} by ${esc(r.by === 'agent' ? label(agent.name) : (r.by || '?'))}`);
+    const cls = ['msg', m.from_me ? 'me' : 'agent', (m.date_deleted || m.date_retracted) ? 'deleted' : ''].join(' ');
+    return `<div class="${cls}">
+      <div class="bubble">${parts.join('')}</div>
+      ${reactions.length ? `<div class="reactions">${reactions.join(' · ')}</div>` : ''}
+      <div class="meta">${meta.join('')}</div>
+    </div>`;
+  }
+
+  function renderPanel(agent) {
+    const panel = document.getElementById('panel');
+    panel.className = `panel ch-${agent ? agent.channel : ''}`;
+    if (!agent) {
+      panel.innerHTML = `<div class="empty-state">No agents with a handle in config/agents.yaml, and nothing recorded.</div>`;
+      return;
+    }
+    const s = agent.stats;
+    const head = `<div class="agent-head">
+      <div class="title"><span class="avatar">${esc(label(agent.name).charAt(0))}</span><h2>${esc(label(agent.name))}</h2>
+        <span class="chip">${esc(CHANNELS[agent.channel] || agent.channel)}</span><span class="handle">${esc(agent.handle || '')}</span></div>
+      <div class="stats">
+        <div class="stat"><div class="label">You sent</div><div class="value">${s.sent}</div></div>
+        <div class="stat"><div class="label">${esc(label(agent.name))} sent</div><div class="value">${s.received}</div></div>
+        <div class="stat"><div class="label">Median first reply</div><div class="value">${duration(s.median_reply_seconds)}</div></div>
+        <div class="stat"><div class="label">First message</div><div class="value small">${s.first ? dateTime(s.first) : '—'}</div></div>
+        <div class="stat"><div class="label">Last message</div><div class="value small">${s.last ? dateTime(s.last) : '—'}</div></div>
+      </div>
+    </div>`;
+    const toolbar = `<div class="toolbar">
+      <input type="search" id="q" placeholder="Search messages" value="${esc(query)}" aria-label="Search messages">
+      <label><input type="checkbox" id="details" ${details ? 'checked' : ''}> Receipts, edits and typing</label>
+      <span class="count" id="count"></span>
+    </div>`;
+    panel.innerHTML = head + toolbar + `<div class="thread${details ? ' show-details' : ''}" id="thread"></div>`;
+
+    const q = query.trim().toLowerCase();
+    const total = agent.items.filter(i => i.type === 'message').length;
+    const shown = agent.items.filter(i => i.type === 'message' ? (!q || searchable(i).includes(q)) : !q && (i.type === 'run' || details));
+    const out = [];
+    let lastDay = null;
+    for (const item of shown) {
+      if (!lastDay || !sameDay(lastDay, item.date)) {
+        out.push(`<div class="day"><span>${esc(day(item.date))}</span></div>`);
+        lastDay = item.date;
+      }
+      if (item.type === 'run') {
+        const what = [item.task, item.step].filter(Boolean).map(esc).join(' · ') || esc(item.name);
+        out.push(`<div class="run" title="${esc(item.name)}"><span>Run started ${time(item.date)}: <strong>${what}</strong>${item.cell ? ` (${esc(item.cell)})` : ''}</span></div>`);
+      } else if (item.type === 'typing') {
+        const span = gap(item.date, item.until);
+        const verb = item.action === 'typing' ? 'typing' : item.action.replace(/_/g, ' ');
+        out.push(`<div class="typing">${esc(label(agent.name))} ${esc(verb)}… ${time(item.date)}${span >= 1 ? ` for ${duration(span)}` : ''}</div>`);
+      } else {
+        out.push(messageHTML(item, agent));
+      }
+    }
+    const thread = document.getElementById('thread');
+    const matches = shown.filter(i => i.type === 'message').length;
+    thread.innerHTML = out.length ? out.join('') : `<div class="empty-state">${q ? 'No messages match.' : 'Nothing recorded yet.'}</div>`;
+    thread.querySelectorAll('.text, .preview, .buttons, .files').forEach(el => highlight(el, q));
+    document.getElementById('count').textContent = q ? `${matches} of ${total} messages` : `${total} message${total === 1 ? '' : 's'}`;
+
+    document.getElementById('q').addEventListener('input', e => {
+      query = e.target.value;
+      const pos = e.target.selectionStart;
+      render();
+      const input = document.getElementById('q');
+      input.focus();
+      input.setSelectionRange(pos, pos);
+    });
+    document.getElementById('details').addEventListener('change', e => {
+      details = e.target.checked;
+      try { localStorage.setItem('dashboard.details', details ? '1' : '0'); } catch (err) {}
+      render();
+    });
+  }
+
+  function renderFooter() {
+    const sources = data.sources.map(s => `<li>${esc(CHANNELS[s.channel] || s.channel)}: <code>${esc(s.path)}</code>, ${s.events} event${s.events === 1 ? '' : 's'}${s.last ? `, last recorded ${esc(dateTime(s.last))}` : ''}</li>`).join('');
+    document.getElementById('footer').innerHTML = `Recorded by agent-runner. This page is a snapshot and doesn't update by itself.
+      ${sources ? `<ul>${sources}</ul>` : ''}
+      To refresh it, run <code>uv run bench dashboard</code> in agent-runner (after <code>uv run bench sync</code> to pull in Telegram messages that arrived while nothing was running).`;
+  }
+
+  function render() {
+    const agent = current();
+    renderTabs(agent);
+    renderPanel(agent);
+  }
+
+  document.getElementById('as-of').textContent = `Snapshot of recorded messages, ${dateTime(data.generated_at)}`;
+  document.getElementById('tabs').addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    selected = tab.dataset.agent;
+    try { history.replaceState(null, '', '#' + encodeURIComponent(selected)); } catch (err) {}
+    render();
+  });
+  window.addEventListener('hashchange', () => {
+    selected = decodeURIComponent(location.hash.slice(1));
+    render();
+  });
+  renderFooter();
+  render();
+})();
+</script>
+</body>
+</html>
