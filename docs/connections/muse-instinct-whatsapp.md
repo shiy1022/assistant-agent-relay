@@ -14,6 +14,73 @@ Back to [all connections](README.md).
 - **Offline but still linked** (Mac asleep, network down, bridge stopped): nothing. WhatsApp holds messages for the device and delivers them when it reconnects.
 - **Unlinked:** messages from the gap aren't recorded. A newly linked device doesn't get them, and the bridge drops WhatsApp's history copy on purpose. Read them on your phone if they matter.
 
+## Set up for the first time
+
+Do [Before you start](README.md#before-you-start) first. You need your iPhone with WhatsApp on your own number, a Meta account for Muse, Go on the Mac, and about 15 minutes.
+
+**Know the risk first.** bench-whatsapp is an unofficial client on your own number. It can see your whole account, and WhatsApp can ban numbers that use unofficial clients. This was accepted for the benchmark. To keep the risk low, the bridge messages only the agents, stays human-paced, and never sends read receipts. Stop at the first warning from WhatsApp, and unlink it under Linked Devices if anything looks wrong.
+
+### On your iPhone: Muse in WhatsApp
+
+1. Update WhatsApp from the App Store. (muse.ai in Safari can't connect WhatsApp.)
+2. In WhatsApp, on the **Chats** tab, tap the **Muse icon**, a small hooded character with a smiling face, or **Try Muse** if a message offers it.
+3. Check that the Meta account shown is the one you use for Muse. If it isn't, tap **Use another account**. Follow the prompts and tap **Get started**, and the chat with Muse opens.
+   - **No Muse icon?** In the Muse app, sign in and send "Connect my WhatsApp account", then tap **Connect WhatsApp → Connect**. It also works from Settings → **Messaging Channels** → WhatsApp.
+4. Send Muse "hi" and wait for a reply.
+5. In Muse's settings, set approvals to **ask before sending or buying**. Connect nothing else to Muse for now: no email, calendar or payment.
+
+### On the Mac: build and install the bridge
+
+6. Build `bench-whatsapp` and install it. This needs Go. It installs to `~/Library/Application Support/agent-runner/whatsapp/` and writes the LaunchAgent, but the bridge doesn't start until it's linked.
+
+   ```bash
+   uv run bench whatsapp-install
+   ```
+
+7. In `config/agents.yaml`, under `agents:`, put Muse's address. Muse is a Meta bot, so its address is a bot ID, not a phone number. It's the same for everyone (whatsmeow knows it as `MuseJID`):
+
+   ```yaml
+   muse:
+     channel: whatsapp
+     handle: "1807055946647697@bot"
+     quiet_period_seconds: 180   # Muse streams each answer by editing one message
+     max_wait_seconds: 1800
+   ```
+
+### Together: link the bridge to your WhatsApp
+
+8. Run:
+
+   ```bash
+   uv run bench whatsapp-link
+   ```
+
+   A QR code appears in the terminal. On your iPhone: WhatsApp → Settings → **Linked Devices** → **Link a Device**, then scan it. The code refreshes every 20–30 seconds, so scan the newest one. It ends with `Linked to WhatsApp as +1…, and bench-whatsapp is running in the background.` WhatsApp then offers the new device a copy of your history, and the bridge drops all of it.
+
+9. Check it. The last line should list `agents: muse`:
+
+   ```bash
+   uv run bench whatsapp-status
+   ```
+
+10. **If the address is in doubt,** have the bridge find it. Run this, then message Muse from your iPhone and wait for its reply. It prints the address of a chat whose sender name matches, and keeps no message content:
+
+    ```bash
+    uv run bench whatsapp-find Muse
+    ```
+
+11. Send a first message and watch for the reply. Muse streams its answer, so the reply shows up several times as it grows:
+
+    ```bash
+    uv run bench send muse "hi" --listen 120
+    ```
+
+    On your iPhone the message shows in Muse's chat as sent by you. That's expected.
+
+12. **From now on,** open WhatsApp on your iPhone at least every 14 days, or WhatsApp logs out linked devices.
+
+Instinct uses the same bridge, so it needs no new install or link. See [Instinct, once you have access](#instinct-once-you-have-access).
+
 ## Check it
 
 ```bash
@@ -117,7 +184,9 @@ Put the address it prints in `config/agents.yaml` under `muse: handle:`, then [r
 
 ## Instinct, once you have access
 
-1. Get in at [instinct.com](https://instinct.com/), then message Instinct on WhatsApp from your phone.
+Instinct is invite-only, and whether it works over WhatsApp isn't confirmed yet. This checks it.
+
+1. In Safari, go to [instinct.com](https://instinct.com/), enter your number and the code you receive, then join the waitlist or use an invite. Once you're in, message Instinct on WhatsApp from your phone, and set it to ask before it sends or buys anything if it offers that.
 2. Find its address. Run this, then message Instinct from your phone and wait for its reply:
 
    ```bash

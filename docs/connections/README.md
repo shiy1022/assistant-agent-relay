@@ -1,6 +1,8 @@
-# Connections: checking and reconnecting
+# Connections: setting up, checking and reconnecting
 
-How agent-runner reaches each personal agent, how to tell whether a connection still works, and what to do when one breaks. Run every command from `agent-runner/`.
+How agent-runner reaches each personal agent, how to set each one up the first time, how to tell whether a connection still works, and what to do when one breaks. Run every command from `agent-runner/`.
+
+Each agent's page has the same sections: how it's connected, **set up for the first time**, check it, what to do if something's wrong, and how to reconnect it.
 
 ## The agents
 
@@ -18,6 +20,52 @@ Each agent has two links, and either one can break:
 | **Hark** | hark.com | The dedicated Chrome, signed in to Hark | `uv run bench hark-status` | [hark.md](hark.md) |
 
 Dots and Hark share the [dedicated Chrome](dedicated-chrome.md).
+
+## Before you start
+
+Do this once on the Mac, before setting up any agent.
+
+1. **Tools:** with Homebrew, install uv (it runs agent-runner and fetches Python 3.12 or newer itself) and Go (it builds the WhatsApp bridge):
+
+   ```bash
+   brew install uv go
+   ```
+
+2. **Google Chrome** in `/Applications`, for Dots and Hark. Your everyday Chrome is fine, and nothing else needs installing for the browser. See [the dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time).
+3. **Install agent-runner's Python packages,** from `agent-runner/`:
+
+   ```bash
+   uv sync
+   ```
+
+4. **Run the tests.** They use fakes and touch no real account. They also compile the parked iMessage reader, which needs Xcode's command line tools (`xcode-select --install` if `swiftc` is missing).
+
+   ```bash
+   uv run pytest
+   ```
+
+5. **Keep your iPhone nearby.** Telegram and WhatsApp are linked by scanning a QR code with it.
+
+**Rules for every agent:**
+- Use your own accounts. The runner messages each agent as you.
+- Set each agent to **ask before it sends or buys anything**. The runner records approval requests and never approves them.
+- Connect nothing else to any agent for now: no email, calendar or payment method.
+- Secrets go in the Keychain, entered at the `security` prompt yourself. Never paste them into chat or into a file in the repo.
+
+## Set up from scratch
+
+Set up the agents in this order. Each step ends with a check and a first message, so a problem shows up before you move on.
+
+| Step | Agent | What you'll do | Time |
+|---|---|---|---|
+| 1 | [Wajo (Fo)](wajo-telegram.md#set-up-for-the-first-time) | Connect Fo to Telegram, make a Telegram API key, link this Mac by QR code | ~15 min |
+| 2 | [Muse](muse-instinct-whatsapp.md#set-up-for-the-first-time) | Start Muse in WhatsApp, build the bridge, link it by QR code | ~15 min |
+| 3 | [The dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time) | Start it once. Steps 4 and 5 sign it in. | ~2 min |
+| 4 | [Dots](dots-slack.md#set-up-for-the-first-time) | Add the dot to Slack, create the runner's Slack app and token, sign Chrome in to Slack | ~20 min |
+| 5 | [Hark](hark.md#set-up-for-the-first-time) | Sign Chrome in to Hark | ~10 min |
+| Later | [Instinct](muse-instinct-whatsapp.md#instinct-once-you-have-access) | Once you have access: find its WhatsApp address and add it | ~5 min |
+
+Each agent is one entry under `agents:` in [config/agents.yaml](../../config/agents.yaml), with a `channel` and a `handle`. An agent with a blank handle is skipped, so you can set them up one at a time. `uv run bench agents` lists the ones that are ready. When all are done, run [Check everything](#check-everything).
 
 ## Check everything
 

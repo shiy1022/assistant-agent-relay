@@ -11,6 +11,70 @@ Back to [all connections](README.md).
 
 Telegram keeps the whole chat on its servers, so nothing is lost while disconnected. The next `bench sync wajo` records what arrived in the meantime.
 
+## Set up for the first time
+
+Do [Before you start](README.md#before-you-start) first. You need your iPhone, a Wajo account, and about 15 minutes.
+
+### On your iPhone: Telegram and Fo
+
+1. **Telegram:** install it from the App Store and sign up with your number, if you don't have an account yet.
+2. **Connect Fo to Telegram:** in Safari, sign in at [wajo.ai](https://wajo.ai/) and open Settings → General → connect Telegram. That opens Fo's chat in Telegram. Tap **Start** if Telegram shows it.
+3. Send Fo "hi" and wait for a reply.
+4. Tap Fo's name at the top of the chat and note its **username**, which starts with @. Ours is `@hey_fo_bot`.
+5. Check that Fo **asks before spending money**, because it has its own payment card. Connect nothing else to Fo for now: no email, calendar or payment.
+
+### On the Mac: an API key
+
+agent-runner uses Telegram's official API, which needs a free API key of your own.
+
+6. Go to [my.telegram.org](https://my.telegram.org) and log in with your number. The login code arrives in Telegram on your iPhone, not by SMS.
+7. Open **API development tools** and create an app. Use the title "agent-runner", any short name (like `agentrunner`), and the platform "Desktop". Copy the **api_id** (a number) and the **api_hash**.
+8. Store both in the Keychain. Each command asks for the value, so enter it at the prompt, and don't paste it into chat:
+
+   ```bash
+   security add-generic-password -U -a "$USER" -s agent-runner.telegram.api_id -w
+   ```
+
+   ```bash
+   security add-generic-password -U -a "$USER" -s agent-runner.telegram.api_hash -w
+   ```
+
+### On the Mac: tell agent-runner about Fo
+
+9. In `config/agents.yaml`, under `agents:`, put Fo's username:
+
+   ```yaml
+   wajo:
+     channel: telegram
+     handle: "@hey_fo_bot"    # Fo's Telegram username
+   ```
+
+### Together: link this Mac to your Telegram
+
+10. Run:
+
+    ```bash
+    uv run bench telegram-login
+    ```
+
+    A QR code appears in the terminal. On your iPhone: Telegram → Settings → Devices → **Link Desktop Device**, then scan it. The code refreshes every 20–30 seconds, so scan the newest one. If you've set a cloud password (two-step verification), the terminal asks for it. Type it yourself. It goes straight to Telegram and isn't stored. It ends with `Logged in to Telegram as <your name>.`
+
+11. Check it. The first time, this also pins Fo to its numeric Telegram ID:
+
+    ```bash
+    uv run bench sync wajo
+    ```
+
+12. Send a first message and watch for the reply:
+
+    ```bash
+    uv run bench send wajo "hi" --listen 120
+    ```
+
+    On your iPhone the message shows in Fo's chat as sent by you. That's expected: the runner is you, on another device.
+
+13. **Recommended:** on your iPhone, under Telegram → Settings → Devices → **Automatically terminate old sessions**, choose the longest option. agent-runner only connects while a command runs, so a short limit would end its session between runs.
+
 ## Check it
 
 ```bash

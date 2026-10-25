@@ -13,6 +13,53 @@ Hark has no API, Mac app or number to text, so there's only one link: hark.com i
 
 Hark keeps the thread on its servers, so nothing is lost while disconnected. The next `bench sync hark` records what arrived in the meantime.
 
+## Set up for the first time
+
+Do [Before you start](README.md#before-you-start) first. You need a Google account to sign in to Hark with, Google Chrome on the Mac, and about 10 minutes. The free plan is enough. It allows 8M Hark tokens a day and 40M a month.
+
+**No card on the account.** Hark places real orders with a connected card, so the benchmark account must never have one.
+
+1. In `config/agents.yaml`, under `agents:`, add Hark. Its handle is always `hark.com`, which means whichever account is signed in there in the dedicated Chrome:
+
+   ```yaml
+   hark:
+     channel: hark
+     handle: "hark.com"
+     quiet_period_seconds: 180   # Hark keeps working in its browser after it first replies
+     max_wait_seconds: 1800
+   ```
+
+2. Sign in. This starts the [dedicated Chrome](dedicated-chrome.md) if it isn't running, opens hark.com/chat, and waits up to 10 minutes while you sign in:
+
+   ```bash
+   uv run bench hark-login
+   ```
+
+3. In that Chrome window, sign in, or sign up, with your Google account:
+   - Use your password or your phone. Passkeys saved in your everyday Chrome or Keychain aren't offered in this profile.
+   - If Chrome asks "Sign in to Chrome?", choose **Use Chrome without an account**.
+   - On a new account, finish Hark's onboarding until the chat opens. When it asks to connect Google (Gmail, Drive, Calendar, Contacts), skip it. Nothing is connected for now.
+4. It ends with `Signed in to Hark as <email> in the dedicated Chrome.` This pins that account and its main thread. If it says `this Hark account has no chat thread yet`, open hark.com/chat once in the dedicated Chrome and run `hark-login` again.
+5. Check everything, without sending anything:
+
+   ```bash
+   uv run bench hark-status
+   ```
+
+6. **Only if you have Hark runs from before this channel existed:** import each one now, with the times it was observed. The first `send` or `sync` would otherwise record those messages with the time it syncs.
+
+   ```bash
+   uv run bench hark-import runs/<folder>
+   ```
+
+7. Send a first message and watch for the reply:
+
+   ```bash
+   uv run bench send hark "ping" --listen 120
+   ```
+
+   It fills Hark's message box, checks the text, and clicks Send. While Hark thinks or browses, that's recorded as a "working" or "browsing" stretch.
+
 ## Check it
 
 ```bash

@@ -11,6 +11,23 @@ Back to [all connections](README.md). Used by [Dots](dots-slack.md) (sending onl
 
 The code is in [bench/channels/chrome.py](../../bench/channels/chrome.py).
 
+## Set it up for the first time
+
+1. Install [Google Chrome](https://www.google.com/chrome/) in `/Applications`, if it isn't there. Your everyday Chrome is fine. The dedicated one is the same app, started with its own profile.
+2. Don't run `playwright install`. agent-runner attaches to this real Chrome and never downloads a browser of its own.
+3. Start it for the first time, either way [below](#start-it). The first start creates the empty profile. `--no-first-run` skips Chrome's welcome pages.
+4. If Chrome offers to sign in to Chrome or turn on sync, decline. Choose **Use Chrome without an account**.
+5. Sign it in to each site, once, through its command. Each one waits while you sign in by hand:
+   - Slack: `uv run bench slack-login`. See [Dots](dots-slack.md#sign-the-dedicated-chrome-in-to-slack-for-sending).
+   - Hark: `uv run bench hark-login`. See [Hark](hark.md#set-up-for-the-first-time).
+6. Check it's answering on its port:
+
+   ```bash
+   curl -s http://127.0.0.1:9222/json/version
+   ```
+
+The sign-ins stay in the profile across Chrome and Mac restarts. Chrome itself doesn't start with the Mac. See [After a Mac restart](README.md#after-a-mac-restart).
+
 ## Check it
 
 ```bash

@@ -15,6 +15,82 @@ Only the **PJTTY** workspace is ever used. Every command first checks that the t
 
 Slack keeps the whole DM on its servers, so nothing is lost while disconnected. The next `bench sync dots` records what arrived in the meantime.
 
+## Set up for the first time
+
+Do [Before you start](README.md#before-you-start) first. You need:
+- ChatGPT Pro or Business Premium, with a dot created. There's one dot per plan.
+- The ChatGPT desktop app on the Mac.
+- A Slack workspace where you're a member and can install apps. Ours is **PJTTY**, and it's the only one agent-runner may use. On a Business or Enterprise Slack, an admin may have to approve both the dot and the runner's app.
+- About 20 minutes.
+
+### Connect the dot to Slack
+
+1. In the ChatGPT desktop app, open the dot's profile → **Add** → Slack, and pick PJTTY.
+2. In Slack, DM the dot yourself and check that it answers. It replies in a thread under your message, about 10 s later.
+
+### Create the runner's Slack app and token
+
+3. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**, pick **PJTTY**, and paste [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml). It asks for user token scopes only (`chat:write`, `im:history`, `im:write`, `users:read`, and optionally `files:read`), so the app acts as you and has no bot of its own.
+4. Open **OAuth & Permissions**, click **Install to Workspace**, and allow it. Leave token rotation off, because a rotating token expires.
+5. Copy the **User OAuth Token** (`xoxp-…`) from the same page. Don't copy a bot token. A dot only answers its owner, so the app has to act as you.
+6. Store the token in the Keychain. The command asks for it, so enter it at the prompt, and don't paste it into chat:
+
+   ```bash
+   security add-generic-password -U -a "$USER" -s agent-runner.slack.user_token -w
+   ```
+
+### Tell agent-runner about the workspace and the dot
+
+7. In Slack, open the dot's profile → ⋮ → **Copy member ID**. Make sure it's the dot (ours is yschore-dot), not the separate "ChatGPT" app.
+8. In `config/agents.yaml`, name the workspace and set sending to the web client, at the top level:
+
+   ```yaml
+   slack:
+     workspace: PJTTY
+     send_via: web    # the dot ignores messages sent through Slack's API
+   ```
+
+   Then add the dot under `agents:`, with its member ID:
+
+   ```yaml
+   dots:
+     channel: slack
+     handle: "U0CBGVDR955"    # the dot's member ID
+     quiet_period_seconds: 120
+     max_wait_seconds: 1800
+   ```
+
+9. Pin the workspace and the DM. This reads through the API only and sends nothing. The first run checks that the token is for PJTTY, pins PJTTY's team ID, and opens the DM with the dot:
+
+   ```bash
+   uv run bench sync dots
+   ```
+
+### Sign the dedicated Chrome in to Slack, for sending
+
+10. Start the [dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time), if it isn't running.
+11. Run:
+
+    ```bash
+    uv run bench slack-login
+    ```
+
+    It opens PJTTY's sign-in page in the dedicated Chrome and waits up to 10 minutes while you sign in. When Slack offers its desktop app, choose to use Slack in your browser. It ends with `Signed in to PJTTY in the dedicated Chrome.`
+
+12. Check everything, without sending anything:
+
+    ```bash
+    uv run bench slack-status
+    ```
+
+13. Send a first message and watch for the reply:
+
+    ```bash
+    uv run bench send dots "ping" --listen 120
+    ```
+
+    It types "ping" into the DM in the dedicated Chrome, clicks Send, and records the dot's reply in its thread.
+
 ## Check it
 
 ```bash
