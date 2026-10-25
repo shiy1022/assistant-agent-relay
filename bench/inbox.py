@@ -3,9 +3,14 @@
 Every channel writes the same event format (see reader/main.swift): "new" and
 "update" events carry a whole message, keyed by guid; Telegram also writes
 "deleted" and "typing" events.
+
+Slack conversations come in threads (the dot answers each message in a thread
+under it), so a Slack message's thread is its own ID if it starts one, or the
+`reply_to` of the thread it's in.
 """
 
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,3 +56,37 @@ class Inbox:
             if "guid" in event:
                 self.messages[event["guid"]] = event
         return events
+
+
+def slack_thread(event: dict) -> str | None:
+    """The Slack thread a message belongs to, by the ID of its first message. None outside Slack."""
+    if event.get("channel") != "slack" or not event.get("message_id"):
+        return None
+    return event.get("reply_to") or event["message_id"]
+
+
+def ts_key(ts: str) -> tuple[int, int]:
+    seconds, _, fraction = str(ts).partition(".")
+    return int(seconds), int((fraction + "000000")[:6])
+
+
+class ThreadNumbers:
+    """Numbers each agent's Slack threads 1, 2, … in the order they began."""
+
+    def __init__(self, events: Iterable[dict] = ()):
+        self.numbers: dict[tuple[str, str], int] = {}
+        self.add(events)
+
+    def add(self, events: Iterable[dict]) -> None:
+        roots = {(e.get("agent"), root) for e in events if (root := slack_thread(e))}
+        for agent, root in sorted(roots - set(self.numbers), key=lambda r: ts_key(r[1])):
+            self.numbers[agent, root] = sum(a == agent for a, _ in self.numbers) + 1
+
+    def of(self, event: dict) -> int | None:
+        """The event's thread number, or None outside Slack. A thread not seen before gets the next number."""
+        root = slack_thread(event)
+        if root is None:
+            return None
+        if (event.get("agent"), root) not in self.numbers:
+            self.add([event])
+        return self.numbers[event.get("agent"), root]

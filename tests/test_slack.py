@@ -708,3 +708,31 @@ def test_slack_agents_need_the_workspace(tmp_path):
         load_agents(path)
     path.write_text("slack:\n  workspace: PJTTY\nagents:\n  dots:\n    channel: slack\n    handle: U07ABCDEF\n")
     assert load_agents(path)["dots"].channel == "slack"
+
+
+# MARK: Thread labels in bench inbox
+
+def slack_event(ts, *, thread=None, agent="dots", from_me=False, text="x"):
+    event = {"kind": "new", "channel": "slack", "agent": agent, "message_id": ts, "is_from_me": from_me,
+             "date": "2026-10-25T07:30:16.000Z", "text": text}
+    if thread:
+        event["reply_to"] = thread
+    return event
+
+
+def test_threads_are_numbered_in_the_order_they_began():
+    from bench.inbox import ThreadNumbers
+    a, b = slack_event("1792911379.937829"), slack_event("1792912391.457379")
+    numbers = ThreadNumbers([b, slack_event("1792912401.912079", thread=b["message_id"]), a])  # out of order
+    assert numbers.of(a) == 1 and numbers.of(b) == 2
+    assert numbers.of(slack_event("1792912999.000000", thread=b["message_id"])) == 2
+    assert numbers.of(slack_event("1792913416.059039")) == 3          # a new thread gets the next number
+    assert numbers.of(slack_event("1792913416.059039", agent="other")) == 1  # each agent counts its own
+    assert numbers.of({"channel": "telegram", "agent": "wajo", "message_id": 5, "reply_to": 4}) is None
+
+
+def test_inbox_lines_name_the_thread():
+    from bench.cli import format_event
+    reply = slack_event("1792913424.560369", thread="1792913416.059039", text="Pong! I'm here.")
+    assert format_event(reply, 5).endswith("dots      ← [thread 5] Pong! I'm here.")
+    assert "[thread" not in format_event(reply)

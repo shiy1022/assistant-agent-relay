@@ -5,8 +5,6 @@ WhatsApp, so it shows only what was already recorded. Telegram messages that
 arrived while nothing was running show up after `bench sync`.
 """
 
-import base64
-import binascii
 import json
 import os
 import statistics
@@ -14,6 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from bench.config import CHANNELS, ROOT, Agent, load_agents
+from bench.conversation import unified_text
 from bench.inbox import Inbox, inbox_path
 
 OUT = ROOT / "data" / "dashboard.html"  # data/ is never committed
@@ -32,34 +31,6 @@ def parse(iso: str) -> datetime:
 
 def iso(dt: datetime) -> str:
     return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.") + f"{dt.microsecond // 1000:03d}Z"
-
-
-def unified_text(raw: dict | None) -> str:
-    """The text of a Meta AI rich response, for Muse messages recorded before
-    bench-whatsapp decoded them itself (see unifiedText in whatsapp/content.go)."""
-    data = (((raw or {}).get("richResponseMessage") or {}).get("unifiedResponse") or {}).get("data")
-    if not data:
-        return ""
-    try:
-        doc = json.loads(base64.b64decode(data))
-    except (binascii.Error, ValueError):
-        return ""
-    texts: list[str] = []
-
-    def walk(node):
-        if isinstance(node, dict):
-            text, typename = node.get("text"), node.get("__typename", "")
-            if isinstance(text, str) and (not typename or "Text" in typename):
-                texts.append(text)
-            for key, value in node.items():
-                if key != "text":
-                    walk(value)
-        elif isinstance(node, list):
-            for value in node:
-                walk(value)
-
-    walk(doc)
-    return "\n".join(t for t in texts if t)
 
 
 def message_items(events: list[dict], inbox: Path) -> list[dict]:
@@ -119,12 +90,13 @@ def typing_items(events: list[dict]) -> list[dict]:
 
 
 def run_items(runs_dir: Path) -> list[dict]:
-    """Where each run began, from runs/<YYYYmmdd-HHMMSS>-…/run.json (local time)."""
+    """Where each run began, from runs/…/run.json: its started_at, or the time its folder is named after (local time)."""
     items = []
     for path in sorted(runs_dir.glob("*/run.json")):
         try:
-            started = datetime.strptime(path.parent.name[:15], "%Y%m%d-%H%M%S").astimezone()
             info = json.loads(path.read_text())
+            started = parse(info["started_at"]) if info.get("started_at") else \
+                datetime.strptime(path.parent.name[:15], "%Y%m%d-%H%M%S").astimezone()
         except (ValueError, OSError):
             continue
         items.append({"type": "run", "agent": info.get("agent"), "date": iso(started), "name": path.parent.name,
@@ -150,14 +122,48 @@ def timeline(messages: list[dict], typing: list[dict], runs: list[dict]) -> list
     return items
 
 
+def by_thread(items: list[dict]) -> list[dict]:
+    """Slack: each thread's messages together, under a header, with threads in the order they began.
+
+    The dot answers each message in a thread under it, so a reply can arrive
+    after a newer thread has started; it still goes under its own thread. Reply
+    times are measured within each thread, and runs stay where they began.
+    """
+    threads: dict[str, list[dict]] = {}
+    for item in items:
+        if item["type"] == "message":
+            threads.setdefault(item.get("reply_to") or item["id"], []).append(item)
+    others = [i for i in items if i["type"] != "message"]
+    out = []
+    for number, (root, messages) in enumerate(sorted(threads.items(), key=lambda t: parse(t[1][0]["date"])), 1):
+        start = messages[0]["date"]
+        while others and parse(others[0]["date"]) <= parse(start):
+            out.append(others.pop(0))
+        previous = None
+        for m in messages:
+            m.pop("reply_to_text", None)  # the thread's header says what it replies to
+            m.pop("reply_seconds", None)
+            m["thread"] = number
+            if not m["from_me"] and previous and previous["from_me"]:
+                m["reply_seconds"] = max(0.0, (parse(m["date"]) - parse(previous["date"])).total_seconds())
+            previous = m
+        first = next((m for m in messages if m["id"] == root), None)
+        out.append({"type": "thread", "number": number, "id": root, "date": start, "until": messages[-1]["date"],
+                    "title": ((first or {}).get("text") or "").strip()[:120] or None,
+                    "from_me": bool(first and first["from_me"]), "messages": len(messages),
+                    "first_reply_seconds": next((m["reply_seconds"] for m in messages if "reply_seconds" in m), None)})
+        out += messages
+    return out + others
+
+
 def stats(items: list[dict]) -> dict:
     messages = [i for i in items if i["type"] == "message"]
     replies = [i["reply_seconds"] for i in messages if "reply_seconds" in i]
     return {
         "sent": sum(m["from_me"] for m in messages),
         "received": sum(not m["from_me"] for m in messages),
-        "first": messages[0]["date"] if messages else None,
-        "last": messages[-1]["date"] if messages else None,
+        "first": min((m["date"] for m in messages), key=parse, default=None),  # Slack's are grouped by thread, not by time
+        "last": max((m["date"] for m in messages), key=parse, default=None),
         "median_reply_seconds": statistics.median(replies) if replies else None,
     }
 
@@ -191,6 +197,8 @@ def snapshot(agents: dict[str, Agent] | None = None, inboxes: dict[str, Path] | 
         mine = [e for e in events[channel] if e.get("agent") == name]
         items = timeline(message_items(mine, inboxes[channel]), typing_items(mine),
                          [r for r in runs if r["agent"] == name])
+        if channel == "slack":
+            items = by_thread(items)
         out.append({"name": name, "channel": channel, "handle": handle, "items": items, "stats": stats(items)})
 
     return {

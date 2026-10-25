@@ -552,7 +552,10 @@ class HarkChannel:
             raise HarkError(f"{run_dir.name} was recorded in Hark thread {info.get('conversation_id')}, "
                             f"not the pinned main thread {self.pins['conversation_id']}; not importing it")
         written = 0
-        for line in (run_dir / "events.jsonl").read_text().splitlines():
+        events = run_dir / "events.jsonl"
+        if not events.exists():
+            events = run_dir / "raw" / "events.jsonl"  # where it is once the run folder is in the standard layout (bench.runs)
+        for line in events.read_text().splitlines():
             e = json.loads(line)
             at, raw = e.get("emitted_at"), e.get("hark") or {}
             if e.get("kind") in ("new", "update") and e.get("message_id"):

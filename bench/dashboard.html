@@ -135,6 +135,10 @@ header.top .as-of { color: var(--muted); font-size: 13px; }
 .run { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; color: var(--muted); font-size: 12.5px; }
 .run::before, .run::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
 .run strong { color: var(--text); font-weight: 600; }
+.thread-group { margin: 14px 0 18px; padding-left: 12px; border-left: 2px solid color-mix(in srgb, var(--ch) 40%, transparent); }
+.thread-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 4px; font-size: 12.5px; color: var(--muted); }
+.thread-head .n { font-weight: 650; color: var(--ch); }
+.thread-head .t { color: var(--text); font-weight: 550; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .msg { display: flex; flex-direction: column; margin: 6px 0; }
 .msg.me { align-items: flex-end; }
@@ -282,7 +286,19 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
     }).join('');
   }
 
-  function messageHTML(m, agent) {
+  function threadHTML(t, agent) {
+    const who = t.from_me ? 'You' : label(agent.name);
+    const facts = [`${t.messages} message${t.messages === 1 ? '' : 's'}`];
+    if (t.first_reply_seconds != null) facts.push(`first reply in ${duration(t.first_reply_seconds)}`);
+    else if (t.from_me && t.messages === 1) facts.push('no reply');
+    return `<div class="thread-head" title="Slack thread started ${esc(d(t.date).toString())}">
+      <span class="n">Thread ${t.number}</span>
+      ${t.title ? `<span class="t">${esc(who)}: “${esc(t.title)}”</span>` : ''}
+      <span>${facts.join(' · ')}</span>
+    </div>`;
+  }
+
+  function messageHTML(m, agent, showDate = false) {
     const parts = [];
     if (m.reply_to_text) parts.push(`<div class="quote">${esc(m.reply_to_text)}</div>`);
     parts.push(m.text
@@ -301,7 +317,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
         : `<span>📎 ${esc(a.name)} (not downloaded)</span>`).join('')}</div>`);
     }
 
-    const meta = [`<span title="${esc(d(m.date).toString())}">${time(m.date)}</span>`];
+    const meta = [`<span title="${esc(d(m.date).toString())}">${showDate ? dateTime(m.date) : time(m.date)}</span>`];
     if (m.reply_seconds != null) meta.push(`<span class="latency" title="Time since your last message">replied in ${duration(m.reply_seconds)}</span>`);
     if (m.date_deleted || m.date_retracted) meta.push(`<span class="warn">deleted ${time(m.date_deleted || m.date_retracted)}</span>`);
     if (m.from_me) {
@@ -358,15 +374,29 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 
     const q = query.trim().toLowerCase();
     const total = agent.items.filter(i => i.type === 'message').length;
-    const shown = agent.items.filter(i => i.type === 'message' ? (!q || searchable(i).includes(q)) : !q && (i.type === 'run' || details));
+    const matching = agent.items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)));
+    const threadsShown = new Set(matching.map(m => m.thread));
+    const matched = new Set(matching);
+    const shown = agent.items.filter(i => i.type === 'message' ? matched.has(i)
+      : i.type === 'thread' ? threadsShown.has(i.number)
+      : !q && (i.type === 'run' || details));
     const out = [];
     let lastDay = null;
+    let thread = null;  // the Slack thread being shown, if any
     for (const item of shown) {
-      if (!lastDay || !sameDay(lastDay, item.date)) {
+      if (thread && item.type !== 'message') {
+        out.push('</section>');
+        thread = null;
+      }
+      const inThread = thread && item.type === 'message';
+      if (!inThread && (!lastDay || !sameDay(lastDay, item.date))) {
         out.push(`<div class="day"><span>${esc(day(item.date))}</span></div>`);
         lastDay = item.date;
       }
-      if (item.type === 'run') {
+      if (item.type === 'thread') {
+        out.push(`<section class="thread-group" aria-label="Thread ${item.number}">` + threadHTML(item, agent));
+        thread = item;
+      } else if (item.type === 'run') {
         const what = [item.task, item.step].filter(Boolean).map(esc).join(' · ') || esc(item.name);
         out.push(`<div class="run" title="${esc(item.name)}"><span>Run started ${time(item.date)}: <strong>${what}</strong>${item.cell ? ` (${esc(item.cell)})` : ''}</span></div>`);
       } else if (item.type === 'typing') {
@@ -374,13 +404,14 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
         const verb = item.action === 'typing' ? 'typing' : item.action.replace(/_/g, ' ');
         out.push(`<div class="typing">${esc(label(agent.name))} ${esc(verb)}… ${time(item.date)}${span >= 1 ? ` for ${duration(span)}` : ''}</div>`);
       } else {
-        out.push(messageHTML(item, agent));
+        out.push(messageHTML(item, agent, inThread && !sameDay(thread.date, item.date)));
       }
     }
-    const thread = document.getElementById('thread');
+    if (thread) out.push('</section>');
+    const container = document.getElementById('thread');
     const matches = shown.filter(i => i.type === 'message').length;
-    thread.innerHTML = out.length ? out.join('') : `<div class="empty-state">${q ? 'No messages match.' : 'Nothing recorded yet.'}</div>`;
-    thread.querySelectorAll('.text, .preview, .buttons, .files').forEach(el => highlight(el, q));
+    container.innerHTML = out.length ? out.join('') : `<div class="empty-state">${q ? 'No messages match.' : 'Nothing recorded yet.'}</div>`;
+    container.querySelectorAll('.text, .preview, .buttons, .files').forEach(el => highlight(el, q));
     document.getElementById('count').textContent = q ? `${matches} of ${total} messages` : `${total} message${total === 1 ? '' : 's'}`;
 
     document.getElementById('q').addEventListener('input', e => {

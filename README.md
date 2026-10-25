@@ -4,6 +4,8 @@ Runs Assistant Bench tasks against personal agents from this Mac and records the
 
 > **Now targeting Wajo and Instinct over WhatsApp.** See [../BUILD_PLAN_WHATSAPP.md](../BUILD_PLAN_WHATSAPP.md). The iMessage channel described below (`reader/`, `bench/imessage/send.py`) is built and tested but parked; you don't need to set it up.
 
+**A connection broke?** [docs/connections/](docs/connections/README.md) covers how to check each agent's connection and how to reconnect it.
+
 So far (M0): a sender that sends iMessages through the Messages app, and `bench-reader`, the only program allowed to read Messages. It copies the agents' chats, and nothing else, into `data/inbox/`.
 
 ## Set up
@@ -95,6 +97,45 @@ Then `uv run bench send hark --file prompt.txt --listen 600` sends a prompt and 
 **How it works:** [bench/channels/hark.py](bench/channels/hark.py) fills Hark's message box, checks the text, and clicks Send. It never clicks the box itself, because Hark covers the empty box with a tappable suggested prompt. Replies are read from the JSON hark.com's own page loads, so each message has Hark's ID and server time. While Hark works or browses, that's recorded as a "working" or "browsing" stretch, like typing. Buttons on Hark's messages are recorded, never pressed. `hark-status` also shows Hark's own token meter.
 
 `uv run bench hark-import runs/<folder>` records a Hark run made before this channel existed, with the times it was observed. Import before the first sync, which would otherwise record those messages with the time it syncs.
+
+## Running a task
+
+```bash
+uv run bench run wajo --file prompt.txt --task "Travel vF Golden" --step "DAY 1 CHECKPOINT" --cell D2
+```
+
+This sends the prompt and records until the agent has answered and then gone quiet for its `quiet_period_seconds`, or until `max_wait_seconds` (`--quiet` and `--max-wait` override them). It works the same on every channel. Then it writes the run's folder. Ctrl-C stops early and still writes the transcript.
+
+Last, it saves the pages the agent linked to as its answer into the folder's `deliverables/`, so the answer is in the run and not just a link to it. Each page is saved as it was served (`.html`) and as text with each link's address (`.txt`). Only links on a per-agent allowlist are fetched, `PAGES` in [bench/deliverables.py](bench/deliverables.py). So far that's Wajo's plans, `wajo.ai/d/<id>`. Other links an agent sends, like referral or invite links, are never opened. If a page can't be saved, the run says so and lists it in `run.json` under `unsaved_deliverables`. To try again, or to save the pages for a run made before this existed:
+
+```bash
+uv run bench run-save runs/<folder>
+```
+
+Pages already in `deliverables/` are skipped. `--again` saves them again as they are now, for example after the agent updated its page. These files sit next to the earlier copies, which are kept.
+
+## Recorded data
+
+What to read, for people and for other agents:
+
+- **`runs/<YYYYmmdd-HHMMSS>-<task>-<agent>/`**: one task prompt sent to one agent.
+  - `run.json`: the task, the agent, when the run started and ended, why it stopped, the IDs of its messages, the links the agent sent, and timing. It has the same keys for every run. Notes added by hand are kept.
+  - `prompt.txt`: the prompt, exactly as sent.
+  - `transcript.jsonl`: every message from the prompt to the end of the run.
+  - `transcript.md`: the same, for people.
+  - `deliverables/`: what the agent made outside the chat, like the page Wajo links to. `bench run` saves those itself (above). Files put here by hand are listed in `run.json` the next time it's rebuilt.
+  - `raw/`: anything else captured along the way.
+- **`data/conversations/<agent>.jsonl`**: everything recorded with each agent, one message per line, as last edited, in the order sent.
+
+Both use the same fields for every channel. They're described at the top of [bench/conversation.py](bench/conversation.py) and [bench/runs.py](bench/runs.py).
+
+`data/conversations/` is written again after every `send`, `run`, `listen` and `sync`, or with `uv run bench export`. Messages that arrive after a run ends, like Telegram messages picked up by a later `bench sync`, reach a run's transcript with:
+
+```bash
+uv run bench run-rebuild runs/<folder>
+```
+
+The channel inboxes (`data/inbox/<channel>/messages.jsonl`, and WhatsApp's in `~/Library/Application Support/agent-runner/whatsapp/inbox/`) are the raw event logs these are built from. In an inbox, a message appears again on every edit, receipt or reaction, and lines aren't in the order sent, so don't read them directly.
 
 ## Tests
 

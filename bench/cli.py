@@ -3,9 +3,13 @@
     bench agents                          list agents that have a handle, and their channels
     bench send AGENT TEXT [--listen S]    send one message (then keep recording for S seconds)
     bench send AGENT --file PATH          send a file's contents exactly, e.g. a task prompt
+    bench run AGENT --file PATH --task T  send a task prompt, record until the reply is finished, write runs/<run>/
+    bench run-rebuild [RUN_DIR ...]       write runs' transcripts again from what's recorded now (default: every run)
+    bench run-save [RUN_DIR ...]          save the pages agents linked to as their answers into runs' deliverables/
     bench listen [AGENT] [--seconds S]    catch up, then record live until Ctrl-C (or S seconds)
     bench sync [AGENT]                    record whatever arrived or changed since last time
     bench inbox [--agent A] [--follow]    show what's been recorded
+    bench export                          write data/conversations/<agent>.jsonl: each agent's messages, cleaned up
     bench dashboard [--out PATH] [--open] write a web page of every recorded conversation
     bench telegram-login                  link this Mac to your Telegram account by QR code
     bench telegram-logout                 end that session and delete it
@@ -28,11 +32,11 @@ import os
 import subprocess
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 
 from bench.config import AGENTS_FILE, CHANNELS, Agent, ConfigError, get_agent, load_agents
-from bench.inbox import Inbox, inbox_path
+from bench.inbox import Inbox, ThreadNumbers, inbox_path
 
 READER_LABEL = "local.personal-agent-benchmark.bench-reader"
 READER_LOG = Path.home() / "Library" / "Logs" / "bench-reader.log"
@@ -46,12 +50,13 @@ def local_time(iso: str | None) -> str:
     return datetime.fromisoformat(iso).astimezone().strftime("%m-%d %H:%M:%S") if iso else "--"
 
 
-def format_event(event: dict) -> str:
+def format_event(event: dict, thread: int | None = None) -> str:
+    """One event as a line. `thread` is the number of the Slack thread it's in, if any."""
     kind = event["kind"]
     if kind == "typing":
         return f"{local_time(event['emitted_at'])}  {event['agent']:<9} … {event['action'].replace('_', ' ')}"
     arrow = "→" if event["is_from_me"] else "←"
-    head = f"{local_time(event.get('date'))}  {event['agent']:<9} {arrow} "
+    head = f"{local_time(event.get('date'))}  {event['agent']:<9} {arrow} " + (f"[thread {thread}] " if thread else "")
     if kind == "deleted":
         return head + "(deleted)"
     if kind == "update":
@@ -80,8 +85,13 @@ def format_event(event: dict) -> str:
     return head + " ".join([text, *extras]).strip()
 
 
+THREADS = ThreadNumbers()  # Slack threads, numbered the same way by every command
+
+
 def print_event(event: dict) -> None:
-    print(format_event(event), flush=True)
+    if event.get("channel") == "slack" and not THREADS.numbers:
+        THREADS.add(Inbox(inbox_path("slack")).poll())  # so send and listen number threads as bench inbox does
+    print(format_event(event, THREADS.of(event)), flush=True)
 
 
 def telegram_agents(name: str | None) -> list[Agent]:
@@ -96,24 +106,24 @@ def telegram_agents(name: str | None) -> list[Agent]:
     return agents
 
 
-def run_telegram(work, agents: list[Agent]) -> None:
+def run_telegram(work, agents: list[Agent], on_event=print_event) -> None:
     from bench.channels.telegram import TelegramChannel
 
     async def main():
-        async with TelegramChannel(agents, on_event=print_event) as telegram:
+        async with TelegramChannel(agents, on_event=on_event) as telegram:
             await work(telegram)
 
     asyncio.run(main())
 
 
-def slack_channel(agent: Agent):
+def slack_channel(agent: Agent, on_event=print_event):
     from bench.channels.slack import SlackChannel
-    return SlackChannel([agent], on_event=print_event)
+    return SlackChannel([agent], on_event=on_event)
 
 
-def hark_channel(agent: Agent):
+def hark_channel(agent: Agent, on_event=print_event):
     from bench.channels.hark import HarkChannel
-    return HarkChannel([agent], on_event=print_event)
+    return HarkChannel([agent], on_event=on_event)
 
 
 def cmd_agents(args: argparse.Namespace) -> None:
@@ -124,47 +134,145 @@ def cmd_agents(args: argparse.Namespace) -> None:
         print(f"{agent.name:<10} {agent.channel:<9} {agent.handle}")
 
 
+class ListenFor:
+    """Keeps recording for a fixed time after sending, as bench send --listen does."""
+
+    def __init__(self, seconds: float | None):
+        self.left = seconds or 0
+        self.listening = bool(seconds)
+
+    def next(self) -> float:
+        seconds, self.left = self.left, 0
+        return seconds
+
+
+def converse(agent: Agent, text: str, plan, on_event=print_event) -> None:
+    """Sends `text` to the agent, then keeps recording for as long as `plan` says:
+    `plan.next()` is how many seconds to record next, 0 to stop (ListenFor, or
+    runs.Watch for bench run). `plan.listening` is whether it records at all."""
+    if agent.channel == "telegram":
+        async def work(telegram):
+            await telegram.sync()
+            await telegram.send(agent, text)
+            while seconds := plan.next():
+                await telegram.listen(seconds)
+        run_telegram(work, [agent], on_event)
+    elif agent.channel == "whatsapp":
+        from bench.channels import whatsapp
+        whatsapp.write_agents()
+        box = whatsapp.open_inbox()
+        if plan.listening:
+            whatsapp.set_online(True)
+        try:
+            whatsapp.send(agent, text)
+            seconds = plan.next()
+            whatsapp.follow(box, {agent.name}, seconds or 2, on_event)
+            while seconds and (seconds := plan.next()):
+                whatsapp.follow(box, {agent.name}, seconds, on_event)
+        finally:
+            if plan.listening:
+                whatsapp.set_online(False)
+    elif agent.channel == "slack":
+        with slack_channel(agent, on_event) as slack:
+            slack.sync()
+            slack.send(agent, text)
+            while seconds := plan.next():
+                slack.listen(seconds)
+    elif agent.channel == "hark":
+        with hark_channel(agent, on_event) as hark:
+            hark.sync()
+            hark.send(agent, text)
+            while seconds := plan.next():
+                hark.listen(seconds)
+    elif agent.channel == "imessage":
+        from bench.imessage.send import send
+        requested_at = send(agent, text)
+        print(f"sent to {agent.name} ({agent.handle}) at {requested_at.astimezone():%H:%M:%S}")
+
+
 def cmd_send(args: argparse.Namespace) -> None:
     agent = get_agent(args.agent)
     if args.file:
         args.text = Path(args.file).read_text()  # exactly as written, with no shell quoting in between
     if not args.text:
         raise ChannelError("give the message as TEXT or with --file")
-    if agent.channel == "telegram":
-        async def work(telegram):
-            await telegram.sync()
-            await telegram.send(agent, args.text)
-            if args.listen:
-                await telegram.listen(args.listen)
-        run_telegram(work, [agent])
-    elif agent.channel == "whatsapp":
-        from bench.channels import whatsapp
-        whatsapp.write_agents()
-        box = whatsapp.open_inbox()
-        if args.listen:
-            whatsapp.set_online(True)
-        try:
-            whatsapp.send(agent, args.text)
-            whatsapp.follow(box, {agent.name}, args.listen or 2, print_event)
-        finally:
-            if args.listen:
-                whatsapp.set_online(False)
-    elif agent.channel == "slack":
-        with slack_channel(agent) as slack:
-            slack.sync()
-            slack.send(agent, args.text)
-            if args.listen:
-                slack.listen(args.listen)
-    elif agent.channel == "hark":
-        with hark_channel(agent) as hark:
-            hark.sync()
-            hark.send(agent, args.text)
-            if args.listen:
-                hark.listen(args.listen)
-    elif agent.channel == "imessage":
-        from bench.imessage.send import send
-        requested_at = send(agent, args.text)
-        print(f"sent to {agent.name} ({agent.handle}) at {requested_at.astimezone():%H:%M:%S}")
+    converse(agent, args.text, ListenFor(args.listen))
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    from bench import runs
+    agent = get_agent(args.agent)
+    if agent.channel == "imessage":
+        raise ChannelError("bench run doesn't support iMessage, which is parked")
+    prompt = Path(args.file).read_text()  # exactly as written, with no shell quoting in between
+    if not prompt.strip():
+        raise ChannelError(f"{args.file} is empty")
+    run_dir = runs.start(agent, prompt, task=args.task, step=args.step, cell=args.cell)
+    watch = runs.Watch(agent, quiet=args.quiet, max_wait=args.max_wait)
+    print(f"Run {run_dir.name}: sending to {agent.name}, then recording until it's quiet for {watch.quiet:.0f}s "
+          f"(at most {watch.max_wait:.0f}s). Ctrl-C stops early and still writes the transcript.", flush=True)
+
+    def on_event(event: dict) -> None:
+        print_event(event)
+        watch.see(event)
+
+    try:
+        converse(agent, prompt, watch, on_event)
+        reason = watch.finished() or "stopped recording"
+    except KeyboardInterrupt:
+        reason = "stopped with Ctrl-C"
+    except BaseException as e:
+        runs.end(run_dir, f"failed: {e}")
+        raise
+    info = runs.finish(run_dir, reason)
+    t = info["timing"]
+    print(f"\n{reason}. {t['agent_messages']} messages from {agent.name}"
+          + (f", first after {t['seconds_to_first_reply']:.0f}s" if t["first_reply"] else "")
+          + f".\nWrote {display(run_dir)}")
+    save_deliverables(run_dir)
+
+
+def save_deliverables(run_dir: Path, again: bool = False) -> bool:
+    """Saves the pages the run's agent linked to as its answer, and says what it saved.
+    Returns whether every one was saved."""
+    from bench import deliverables
+    saved, unsaved = deliverables.save(run_dir, again=again)
+    for d in saved:
+        print(f"Saved {d['path']} from {d['source']}")
+    for d in unsaved:
+        print(f"bench: couldn't save {d['source']}: {d['error']}\n"
+              f"  Try again with: uv run bench run-save {display(run_dir)}", file=sys.stderr)
+    return not unsaved
+
+
+def cmd_run_rebuild(args: argparse.Namespace) -> None:
+    from bench import conversation, runs
+    dirs = [Path(d).expanduser().resolve() for d in args.run_dir] or sorted(p.parent for p in runs.RUNS_DIR.glob("*/run.json"))
+    everything = conversation.load()
+    for run_dir in dirs:
+        info = runs.rebuild(run_dir, everything)
+        print(f"{run_dir.name}: {len(info['messages'])} messages, {len(info['deliverables'])} deliverables")
+
+
+def cmd_run_save(args: argparse.Namespace) -> None:
+    from bench import runs
+    dirs = [Path(d).expanduser().resolve() for d in args.run_dir] or sorted(p.parent for p in runs.RUNS_DIR.glob("*/run.json"))
+    if not all([save_deliverables(run_dir, args.again) for run_dir in dirs]):
+        from bench.deliverables import DeliverableError
+        raise DeliverableError("some pages weren't saved; each run lists them in run.json under unsaved_deliverables")
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    from bench import conversation
+    for path in conversation.export():
+        print(f"Wrote {display(path)}")
+
+
+def display(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
 
 
 def recording_message(seconds: float | None) -> str:
@@ -222,13 +330,21 @@ def cmd_sync(args: argparse.Namespace) -> None:
     run_telegram(work, telegram_agents(args.agent))
 
 
+def event_order(event: dict) -> tuple[datetime, datetime]:
+    """By when the message was sent, then when it was recorded: a sync can record
+    old messages after newer ones, and Hark's imported runs come before their sync."""
+    recorded = datetime.fromisoformat(event["emitted_at"]) if event.get("emitted_at") else datetime.min.replace(tzinfo=UTC)
+    return (datetime.fromisoformat(event["date"]) if event.get("date") else recorded), recorded
+
+
 def cmd_inbox(args: argparse.Namespace) -> None:
     if args.agent:
         channels = [get_agent(args.agent).channel]
     else:
         channels = [c for c in CHANNELS if inbox_path(c).exists()]
     inboxes = [Inbox(inbox_path(c)) for c in channels]
-    events = sorted((e for inbox in inboxes for e in inbox.poll()), key=lambda e: e.get("emitted_at", ""))
+    events = sorted((e for inbox in inboxes for e in inbox.poll()), key=event_order)
+    THREADS.add(events)  # numbered from the whole inbox, not just the lines shown
     for event in [e for e in events if not args.agent or e.get("agent") == args.agent][-args.last:]:
         print_event(event)
     while args.follow:
@@ -343,6 +459,17 @@ def cmd_reader_status(args: argparse.Namespace) -> None:
         print("".join(READER_LOG.read_text().splitlines(keepends=True)[-8:]), end="")
 
 
+RECORDING = {"send", "run", "listen", "sync", "hark-import"}  # commands after which data/conversations is written again
+
+
+def export_quietly() -> None:
+    from bench import conversation
+    try:
+        conversation.export()
+    except (OSError, ValueError) as e:
+        print(f"bench: couldn't write data/conversations: {e}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="bench", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -353,6 +480,24 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--file", help="send this file's contents instead of TEXT")
     p.add_argument("--listen", type=float, metavar="SECONDS", help="keep recording replies this long after sending")
     p.set_defaults(func=cmd_send)
+    p = sub.add_parser("run")
+    p.add_argument("agent")
+    p.add_argument("--file", required=True, help="the prompt, sent exactly as written")
+    p.add_argument("--task", required=True, help="the task's name, as in the task sheet")
+    p.add_argument("--step", help="the step within the task, like \"DAY 1 CHECKPOINT\"")
+    p.add_argument("--cell", help="the task sheet cell the prompt came from, like D2")
+    p.add_argument("--quiet", type=float, metavar="SECONDS",
+                   help="the reply is finished after this long with nothing new (default: the agent's quiet_period_seconds)")
+    p.add_argument("--max-wait", type=float, metavar="SECONDS",
+                   help="stop recording after this long whatever happens (default: the agent's max_wait_seconds)")
+    p.set_defaults(func=cmd_run)
+    p = sub.add_parser("run-rebuild")
+    p.add_argument("run_dir", nargs="*", help="runs/… folders (default: every run)")
+    p.set_defaults(func=cmd_run_rebuild)
+    p = sub.add_parser("run-save")
+    p.add_argument("run_dir", nargs="*", help="runs/… folders (default: every run)")
+    p.add_argument("--again", action="store_true", help="save pages already in deliverables/ again, as they are now")
+    p.set_defaults(func=cmd_run_save)
     p = sub.add_parser("listen")
     p.add_argument("agent", nargs="?")
     p.add_argument("--seconds", type=float, help="stop after this long (default: until Ctrl-C)")
@@ -365,6 +510,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--follow", "-f", action="store_true")
     p.add_argument("--last", type=int, default=20, help="how many past events to show (default 20)")
     p.set_defaults(func=cmd_inbox)
+    sub.add_parser("export").set_defaults(func=cmd_export)
     p = sub.add_parser("dashboard")
     p.add_argument("--out", help="where to write it (default data/dashboard.html)")
     p.add_argument("--open", action="store_true", help="open it in your browser afterwards")
@@ -393,14 +539,20 @@ def main(argv: list[str] | None = None) -> int:
     from bench.channels.slack import SlackError
     from bench.channels.telegram import TelegramError
     from bench.channels.whatsapp import WhatsAppError
+    from bench.deliverables import DeliverableError
     from bench.imessage.send import SendError
+    from bench.runs import RunError
     try:
         args.func(args)
-    except (ConfigError, ChannelError, HarkError, SendError, SlackError, TelegramError, WhatsAppError) as e:
+    except (ConfigError, ChannelError, DeliverableError, HarkError, RunError, SendError, SlackError, TelegramError,
+            WhatsAppError) as e:
         print(f"bench: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
         return 130
+    finally:
+        if args.command in RECORDING:
+            export_quietly()
     return 0
 
 

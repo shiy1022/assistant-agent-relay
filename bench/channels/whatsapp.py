@@ -131,7 +131,10 @@ def domain() -> str:
 
 
 def running() -> bool:
-    return launchctl("print", f"{domain()}/{LABEL}").returncode == 0
+    """Whether the bridge process is up. Its LaunchAgent stays loaded after a clean exit (not linked, or
+    logged out), so being loaded isn't enough: launchctl has to report the service's state as running."""
+    result = launchctl("print", f"{domain()}/{LABEL}")
+    return result.returncode == 0 and any(line.strip() == "state = running" for line in result.stdout.splitlines())
 
 
 def start() -> None:
