@@ -61,7 +61,7 @@ If a check fails, open that agent's doc. It has a table that goes from the error
 
 ## Which side broke?
 
-- **A command errors, or a check says `NOT READY`, `not linked` or `Last status: …`:** it's ours. Follow the agent's doc.
+- **A command errors, or a check says `NOT READY`, `not running`, `not linked` or `Last status: …`:** it's ours. Follow the agent's doc.
 - **Every check passes and your message is recorded as sent (`→`), but no reply ever comes:** it's probably theirs. Message the agent yourself, from your phone or its app. If it doesn't answer there either, reconnect it on the agent's side. Each doc has a section for that.
 
 ## After a Mac restart

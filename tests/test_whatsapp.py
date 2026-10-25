@@ -2,6 +2,7 @@ import json
 import os
 import shutil
 import socket
+import subprocess
 import tempfile
 import threading
 from pathlib import Path
@@ -147,3 +148,36 @@ def test_link_failure_is_reported_and_the_bridge_left_stopped(tmp_path, monkeypa
     with pytest.raises(WhatsAppError, match="no QR code was scanned"):
         whatsapp.link(show=lambda code: None)
     assert started == []
+
+
+# What `launchctl print` shows for the bridge's LaunchAgent, trimmed.
+LOADED_AND_RUNNING = "gui/501/local.personal-agent-benchmark.bench-whatsapp = {\n\tstate = running\n\tpid = 88239\n" \
+                     "\tendpoints = {\n\t\tstate = active\n\t}\n}\n"
+LOADED_BUT_EXITED = "gui/501/local.personal-agent-benchmark.bench-whatsapp = {\n\tstate = not running\n" \
+                    "\tlast exit code = 0\n}\n"
+
+
+@pytest.mark.parametrize("returncode, stdout, expected", [
+    (0, LOADED_AND_RUNNING, True),
+    (0, LOADED_BUT_EXITED, False),  # a clean exit after being logged out leaves the LaunchAgent loaded
+    (113, "", False),               # not loaded at all
+])
+def test_running_means_the_process_is_up(monkeypatch, returncode, stdout, expected):
+    monkeypatch.setattr(whatsapp, "launchctl", lambda *args: subprocess.CompletedProcess(args, returncode, stdout, ""))
+    assert whatsapp.running() is expected
+
+
+def test_status_after_being_logged_out(tmp_path, monkeypatch):
+    (tmp_path / "bench-whatsapp").touch()
+    (tmp_path / "status.json").write_text(json.dumps({"status": "logged_out", "since": "2026-10-25T06:11:19.013Z"}))
+    monkeypatch.setattr(whatsapp, "BINARY", tmp_path / "bench-whatsapp")
+    monkeypatch.setattr(whatsapp, "BRIDGE_DIR", tmp_path)
+    monkeypatch.setattr(whatsapp, "LOG", tmp_path / "missing.log")
+    monkeypatch.setattr(whatsapp, "launchctl", lambda *args: subprocess.CompletedProcess(args, 0, LOADED_BUT_EXITED, ""))
+    def no_answer(*args, **kw):
+        raise WhatsAppError("bench-whatsapp isn't running")
+    monkeypatch.setattr(whatsapp, "request", no_answer)
+    assert whatsapp.describe().splitlines() == [
+        "bench-whatsapp is not running in the background.",
+        "Last status: logged_out since 2026-10-25T06:11:19.013Z",
+    ]

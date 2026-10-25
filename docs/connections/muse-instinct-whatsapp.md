@@ -29,15 +29,15 @@ WhatsApp: linked, connected, offline; agents: muse
 
 "offline" is normal. The bridge shows you as offline except while a run waits for a reply.
 
-Read the **second line**. `WhatsApp: …` means the bridge answered. `Last status: …` means it didn't. The first line only checks that the LaunchAgent is loaded, so it can say "running" even when the bridge has exited.
+The first line says whether the bridge process is up. The second line is what it reports: `WhatsApp: …` when it answers, or `Last status: …`, the last state it recorded, when it doesn't.
 
 ## If something's wrong
 
 | You see | What it means | Fix |
 |---|---|---|
-| `Last status: logged_out`, and a Mac notification "WhatsApp unlinked agent-runner" | WhatsApp unlinked the device. It was removed on your phone, the phone went 14 days without opening WhatsApp, or WhatsApp logged it out. | [Link again](#link-again) |
-| `Last status: not_linked` | It was never linked, or its session was deleted. | [Link again](#link-again) |
-| `Last status: stopped` or `connected` | The bridge exited, or its job was unloaded. | [Restart the bridge](#restart-the-bridge) |
+| `not running` with `Last status: logged_out`, and a Mac notification "WhatsApp unlinked agent-runner" | WhatsApp unlinked the device. It was removed on your phone, the phone went 14 days without opening WhatsApp, or WhatsApp logged it out. | [Link again](#link-again) |
+| `not running` with `Last status: not_linked` | It was never linked, or its session was deleted. | [Link again](#link-again) |
+| `not running` with `Last status: stopped` or `connected`, or no last status | The bridge exited or crashed, or its job was unloaded. | [Restart the bridge](#restart-the-bridge) |
 | `WhatsApp: linked, disconnected` | It lost the network and reconnects by itself. | Wait a minute. If it stays disconnected, [restart the bridge](#restart-the-bridge). |
 | `WhatsApp: … replaced` | Another copy of the session connected. | [Restart the bridge](#restart-the-bridge). If it keeps happening, [start clean](#start-clean). |
 | `bench-whatsapp isn't running. Link it with: uv run bench whatsapp-link` | `send` or `listen` couldn't reach the socket. | Run `whatsapp-status` first. Linked: [restart](#restart-the-bridge). Not linked: [link again](#link-again). |
