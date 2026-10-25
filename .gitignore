@@ -5,3 +5,4 @@ reader/bin/
 data/
 runs/
 .DS_Store
+tasks/

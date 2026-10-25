@@ -100,6 +100,8 @@ Then `uv run bench send hark --file prompt.txt --listen 600` sends a prompt and 
 
 ## Running a task
 
+The task sheet isn't in this repo. How to get it, pick a step and score it: [docs/running-tasks.md](docs/running-tasks.md).
+
 ```bash
 uv run bench run wajo --file prompt.txt --task "Travel vF Golden" --step "DAY 1 CHECKPOINT" --cell D2
 ```
