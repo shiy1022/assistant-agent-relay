@@ -1,0 +1,26 @@
+[project]
+name = "agent-runner"
+version = "0.1.0"
+description = "Runs Assistant Bench tasks against iMessage agents and records their replies."
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6",
+    "qrcode>=8",
+    "telethon>=1.45,<2",
+]
+
+[project.scripts]
+bench = "bench.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bench"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

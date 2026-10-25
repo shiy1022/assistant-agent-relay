@@ -1,0 +1,27 @@
+# Agents the pipeline may message, and the channel it reaches each one on.
+# Nothing is ever sent to, or recorded from, anyone not listed here.
+#
+# handle, by channel:
+#   telegram  the agent's Telegram username, like @fo_example
+#   whatsapp  the agent's WhatsApp number with country code, like +15551234567,
+#             or a bot ID for Meta's own agents, like 1807055946647697@bot
+#   imessage  phone number or email (parked; bench-reader is compiled from these
+#             handles, so changing one means reader/install.sh and re-approving it)
+# Agents left blank are skipped.
+
+defaults:
+  quiet_period_seconds: 90   # a reply counts as finished after this long with nothing new
+  max_wait_seconds: 900      # give up waiting for a reply after this long
+
+agents:
+  wajo:
+    channel: telegram
+    handle: "@hey_fo_bot"    # Fo's Telegram username
+  muse:
+    channel: whatsapp
+    handle: "1807055946647697@bot"  # Muse's WhatsApp bot ID, as whatsmeow knows it; W0 confirms it
+    quiet_period_seconds: 180
+    max_wait_seconds: 1800
+  instinct:
+    channel: whatsapp
+    handle: ""               # once you have access

@@ -1,0 +1,8 @@
+# Test agents with fake handles, written the way people paste them.
+agents:
+  instinct:
+    handle: "+1 (555) 010-0001"
+  boba:
+    handle: Boba@Example.com
+  wajo:
+    handle: ""
