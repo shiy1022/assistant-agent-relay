@@ -62,6 +62,17 @@ type Bridge struct {
 	available   bool
 	offTimer    *time.Timer
 	status      string
+	finding     *finder
+}
+
+// finder looks for an agent's chat by the name it sends under, for agents
+// like Instinct that don't publish their number. While it's active, incoming
+// 1:1 messages are checked by sender name in memory; only a chat whose name
+// matches is kept, and no message content is recorded, even for that chat.
+type finder struct {
+	query string
+	until time.Time
+	found []map[string]string
 }
 
 func newBridge(dir string, client messenger, lidToPN func(context.Context, types.JID) (types.JID, error)) *Bridge {
@@ -330,6 +341,7 @@ func (b *Bridge) onMessage(ctx context.Context, e *events.Message) {
 			// Bot IDs aren't personal, and this is how you find an agent's ID.
 			b.logf("ignored a message in a chat with bot account %s, which isn't in agents.json", e.Info.Chat)
 		}
+		b.checkFind(ctx, e.Info)
 		return
 	}
 	m := e.Message
@@ -438,6 +450,67 @@ func (b *Bridge) onTyping(ctx context.Context, e *events.ChatPresence) {
 		action = "recording"
 	}
 	b.emit("typing", map[string]any{"channel": "whatsapp", "agent": agent.Name, "handle": agent.Handle, "action": action})
+}
+
+// MARK: Finding an agent's address
+
+func (b *Bridge) StartFind(query string, d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.finding = &finder{query: strings.ToLower(strings.TrimSpace(query)), until: b.now().Add(d)}
+}
+
+func (b *Bridge) Found() (found []map[string]string, active bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.finding == nil {
+		return nil, false
+	}
+	return append([]map[string]string{}, b.finding.found...), b.now().Before(b.finding.until)
+}
+
+func (b *Bridge) checkFind(ctx context.Context, info types.MessageInfo) {
+	b.mu.Lock()
+	f := b.finding
+	active := f != nil && f.query != "" && b.now().Before(f.until)
+	b.mu.Unlock()
+	if !active || info.IsGroup || info.IsFromMe {
+		return
+	}
+	verified := ""
+	if info.VerifiedName != nil {
+		verified = info.VerifiedName.Details.GetVerifiedName()
+	}
+	if !strings.Contains(strings.ToLower(info.PushName), f.query) && !strings.Contains(strings.ToLower(verified), f.query) {
+		return
+	}
+	match := map[string]string{"chat": info.Chat.String(), "push_name": info.PushName}
+	if verified != "" {
+		match["verified_name"] = verified
+	}
+	for _, jid := range []types.JID{info.Chat, info.SenderAlt} {
+		if jid.Server == types.DefaultUserServer {
+			match["phone"] = "+" + jid.User
+		} else if jid.Server == types.HiddenUserServer {
+			match["lid"] = jid.ToNonAD().String()
+		}
+	}
+	if match["phone"] == "" && match["lid"] != "" && b.lidToPN != nil {
+		if lid, err := types.ParseJID(match["lid"]); err == nil {
+			if pn, err := b.lidToPN(ctx, lid); err == nil && !pn.IsEmpty() {
+				match["phone"] = "+" + pn.User
+			}
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, seen := range f.found {
+		if seen["chat"] == match["chat"] {
+			return
+		}
+	}
+	f.found = append(f.found, match)
+	b.logf("found a chat named %q: %s", info.PushName, info.Chat)
 }
 
 // MARK: What the runner asks for

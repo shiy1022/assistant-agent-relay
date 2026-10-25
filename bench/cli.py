@@ -9,6 +9,7 @@
     bench telegram-logout                 end that session and delete it
     bench whatsapp-install                build bench-whatsapp and install it in the background
     bench whatsapp-link                   link it to your WhatsApp by QR code, then start it
+    bench whatsapp-find NAME              find an agent's WhatsApp address by the name it replies under
     bench whatsapp-status                 is it running, linked and recording?
     bench whatsapp-unlink                 log it out of WhatsApp and delete its session
     bench slack-login                     sign the dedicated Chrome in to the Slack workspace (for send_via: web)
@@ -59,7 +60,10 @@ def format_event(event: dict) -> str:
             changes.append("read")
         changes += [f"attachment {a['path']}" for a in event.get("attachments", []) if a.get("path")]
         if event.get("reactions"):
-            changes.append("reactions " + " ".join(f"{r['emoji']}×{r['count']}" for r in event["reactions"]))
+            # Telegram counts reactions; WhatsApp says who reacted.
+            changes.append("reactions " + " ".join(
+                f"{r['emoji']}×{r['count']}" if "count" in r else f"{r['emoji']} by {r.get('by', '?')}"
+                for r in event["reactions"]))
         text = (event.get("text") or "").replace("\n", " ⏎ ")
         return head + f"(updated{': ' + ', '.join(changes) if changes else ''}) {text}".rstrip()
     text = (event.get("text") or "").replace("\n", " ⏎ ")
@@ -231,6 +235,21 @@ def cmd_whatsapp_link(args: argparse.Namespace) -> None:
     print(f"\nLinked to WhatsApp as {phone}, and bench-whatsapp is running in the background. You can close this tab.")
 
 
+def cmd_whatsapp_find(args: argparse.Namespace) -> None:
+    from bench.channels import whatsapp
+    print(f"Looking for a WhatsApp chat named “{args.name}” for {args.seconds:.0f}s.\n"
+          f"On your iPhone, send {args.name} a message in WhatsApp now and wait for its reply.\n"
+          "(Only a matching sender name is kept; no message content is recorded.)", flush=True)
+    found = whatsapp.find(args.name, args.seconds)
+    if not found:
+        print(f"\nNo chat named “{args.name}” replied in time.")
+        return
+    for match in found:
+        address = match.get("phone") or match.get("lid") or match["chat"]
+        names = " / ".join(filter(None, [match.get("verified_name"), match.get("push_name")]))
+        print(f"\nFound {names}: {address}  (chat {match['chat']})")
+
+
 def cmd_whatsapp_status(args: argparse.Namespace) -> None:
     from bench.channels import whatsapp
     print(whatsapp.describe())
@@ -293,6 +312,10 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("telegram-logout").set_defaults(func=cmd_telegram_logout)
     sub.add_parser("whatsapp-install").set_defaults(func=cmd_whatsapp_install)
     sub.add_parser("whatsapp-link").set_defaults(func=cmd_whatsapp_link)
+    p = sub.add_parser("whatsapp-find")
+    p.add_argument("name", help="the name the agent sends under, like Instinct")
+    p.add_argument("--seconds", type=float, default=300)
+    p.set_defaults(func=cmd_whatsapp_find)
     sub.add_parser("whatsapp-status").set_defaults(func=cmd_whatsapp_status)
     sub.add_parser("whatsapp-unlink").set_defaults(func=cmd_whatsapp_unlink)
     sub.add_parser("slack-login").set_defaults(func=cmd_slack_login)

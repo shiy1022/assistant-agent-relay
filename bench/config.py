@@ -19,7 +19,9 @@ CHANNELS = ("telegram", "whatsapp", "slack", "imessage")
 PHONE = re.compile(r"^\+[1-9]\d{7,14}$")
 EMAIL = re.compile(r"^[^@\s\"\\]+@[^@\s\"\\]+\.[^@\s\"\\]+$")
 TELEGRAM_USERNAME = re.compile(r"^@[a-z][a-z0-9_]{3,31}$")
-WHATSAPP_BOT = re.compile(r"^\d{5,25}@bot$")  # Meta's own agents, like Muse, have bot IDs instead of numbers
+# Meta's own agents, like Muse, have bot IDs instead of numbers; some accounts
+# only show up under WhatsApp's private ID (LID).
+WHATSAPP_ADDRESS = re.compile(r"^\d{5,25}@(bot|lid)$")
 # A Slack member ID (what "Copy member ID" gives), or the name they go by.
 SLACK_MEMBER_ID = re.compile(r"^[UW][A-Z0-9]{6,}$")
 SLACK_NAME = re.compile(r"^@[a-z0-9][a-z0-9._ -]{0,79}$")
@@ -42,10 +44,10 @@ class Agent:
 def normalize_handle(raw: str, channel: str = "imessage") -> str:
     """Returns the handle in the form the channel uses.
 
-    telegram: lowercase @username. whatsapp: E.164 phone number, or a bot ID
-    like 1807055946647697@bot. slack: member ID like U07ABCDEF, or a lowercase
-    @name. imessage: E.164 phone number or lowercase email, as Messages stores
-    them.
+    telegram: lowercase @username. whatsapp: E.164 phone number, or an address
+    like 1807055946647697@bot or …@lid. slack: member ID like U07ABCDEF, or a
+    lowercase @name. imessage: E.164 phone number or lowercase email, as
+    Messages stores them.
     """
     raw = raw.strip()
     if channel == "slack":
@@ -60,13 +62,13 @@ def normalize_handle(raw: str, channel: str = "imessage") -> str:
         if not TELEGRAM_USERNAME.match(handle):
             raise ConfigError(f"{raw!r} is not a Telegram username (5–32 letters, digits or _, like @fo_example)")
         return handle
-    if channel == "whatsapp" and WHATSAPP_BOT.match(raw.lower()):
+    if channel == "whatsapp" and WHATSAPP_ADDRESS.match(raw.lower()):
         return raw.lower()
     handle = raw.lower() if "@" in raw else re.sub(r"[\s().-]", "", raw)
     if PHONE.match(handle) or (channel == "imessage" and EMAIL.match(handle)):
         return handle
     if channel == "whatsapp":
-        raise ConfigError(f"{raw!r} is not a phone number with country code (+15551234567) or a bot ID (digits@bot)")
+        raise ConfigError(f"{raw!r} is not a phone number with country code (+15551234567) or a WhatsApp address (digits@bot or digits@lid)")
     raise ConfigError(f"{raw!r} is not a phone number with country code (+15551234567) or an email address")
 
 

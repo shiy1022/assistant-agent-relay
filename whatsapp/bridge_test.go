@@ -325,6 +325,42 @@ func TestPresenceOnlyWhenAsked(t *testing.T) {
 	}
 }
 
+func TestFindingAnAgentByName(t *testing.T) {
+	b, _ := setup(t)
+	// Instinct isn't on the list yet; only Muse is.
+	muse := `[{"name":"muse","handle":"` + museJID.String() + `","jids":["` + museJID.String() + `"]}]`
+	_ = os.WriteFile(b.path("agents.json"), []byte(muse), 0o600)
+	_ = os.Chtimes(b.path("agents.json"), time.Now(), time.Now().Add(time.Second))
+	ctx := context.Background()
+	named := func(name string) func(*types.MessageInfo) {
+		return func(i *types.MessageInfo) { i.PushName = name }
+	}
+
+	b.handle(ctx, incoming(instinctLID, "X0", text("before looking"), named("Instinct")))
+	b.StartFind("instinct", time.Minute)
+	b.handle(ctx, incoming(strangerJID, "X1", text("a friend"), named("Alice")))
+	b.handle(ctx, incoming(instinctLID, "X2", text("I'm here"), named("Me"), func(i *types.MessageInfo) { i.IsFromMe = true }))
+	b.handle(ctx, incoming(instinctLID, "X3", text("Hi! I'm Instinct"), named("Instinct"), func(i *types.MessageInfo) {
+		i.SenderAlt = instinctJID
+	}))
+	b.handle(ctx, incoming(instinctLID, "X4", text("again"), named("Instinct")))
+
+	found, active := b.Found()
+	if !active || len(found) != 1 {
+		t.Fatalf("found %v (active %v)", found, active)
+	}
+	if found[0]["phone"] != "+15550100009" || found[0]["lid"] != instinctLID.String() || found[0]["push_name"] != "Instinct" {
+		t.Fatalf("match = %v", found[0])
+	}
+	if got := inbox(t, b); len(got) != 0 {
+		t.Fatalf("finding must not record messages: %v", got)
+	}
+	b.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
+	if _, active := b.Found(); active {
+		t.Fatal("finding should stop when its time is up")
+	}
+}
+
 func TestNewDevicesSkipHistory(t *testing.T) {
 	dir := t.TempDir()
 	device, err := openDevice(context.Background(), dir)

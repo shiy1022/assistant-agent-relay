@@ -31,8 +31,8 @@ class WhatsAppError(Exception):
 
 
 def jid(handle: str) -> str:
-    """The WhatsApp address for a handle: a phone number, or a bot ID like 1807055946647697@bot."""
-    return handle if handle.endswith("@bot") else handle.removeprefix("+") + "@s.whatsapp.net"
+    """The WhatsApp address for a handle: a phone number, or an address like 1807055946647697@bot."""
+    return handle if "@" in handle else handle.removeprefix("+") + "@s.whatsapp.net"
 
 
 def write_agents(agents: list[Agent] | None = None, bridge_dir: Path = BRIDGE_DIR) -> list[str]:
@@ -83,6 +83,25 @@ def send(agent: Agent, text: str, **kw) -> dict:
 def set_online(on: bool, **kw) -> None:
     """Online lets agents' "typing…" reach the bridge; it's off between runs."""
     request("presence", online=on, **kw)
+
+
+def find(name: str, seconds: float = 300, *, poll: float = 2, settle: float = 15, **kw) -> list[dict]:
+    """Asks the bridge to look for a chat whose sender name contains `name`.
+
+    Returns once a match has been seen and nothing new has turned up for
+    `settle` seconds, or when time runs out. No message content is recorded.
+    """
+    request("find", name=name, seconds=seconds, **kw)
+    found, first_seen = [], None
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        reply = request("found", **kw)
+        if len(reply["found"]) > len(found):
+            found, first_seen = reply["found"], time.monotonic()
+        if not reply["active"] or (first_seen and time.monotonic() - first_seen > settle):
+            break
+        time.sleep(poll)
+    return found
 
 
 def open_inbox(path: Path | None = None) -> Inbox:

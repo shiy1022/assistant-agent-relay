@@ -9,14 +9,17 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"strings"
 	"time"
 )
 
 type request struct {
-	Op     string `json:"op"` // "status", "send" or "presence"
-	Agent  string `json:"agent,omitempty"`
-	Text   string `json:"text,omitempty"`
-	Online *bool  `json:"online,omitempty"`
+	Op      string  `json:"op"` // "status", "send", "presence", "find" or "found"
+	Agent   string  `json:"agent,omitempty"`
+	Text    string  `json:"text,omitempty"`
+	Online  *bool   `json:"online,omitempty"`
+	Name    string  `json:"name,omitempty"`    // find: the name the agent sends under
+	Seconds float64 `json:"seconds,omitempty"` // find: how long to look
 }
 
 func (b *Bridge) handleRequest(ctx context.Context, req request) map[string]any {
@@ -38,6 +41,15 @@ func (b *Bridge) handleRequest(ctx context.Context, req request) map[string]any 
 			return fail(err)
 		}
 		return map[string]any{"ok": true, "online": *req.Online}
+	case "find":
+		if len(strings.TrimSpace(req.Name)) < 3 || req.Seconds <= 0 || req.Seconds > 900 {
+			return map[string]any{"ok": false, "error": "find needs a name of 3+ letters and 1–900 seconds"}
+		}
+		b.StartFind(req.Name, time.Duration(req.Seconds*float64(time.Second)))
+		return map[string]any{"ok": true}
+	case "found":
+		found, active := b.Found()
+		return map[string]any{"ok": true, "found": found, "active": active}
 	}
 	return map[string]any{"ok": false, "error": "unknown op " + req.Op}
 }

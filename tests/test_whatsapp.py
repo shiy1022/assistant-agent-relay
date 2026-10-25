@@ -61,6 +61,10 @@ def bridge_socket():
                     reply = {"ok": False, "error": f"{req['agent']!r} isn't in agents.json, so the bridge won't message it"}
                 elif req["op"] == "send":
                     reply = {"ok": True, "event": {"kind": "new", "agent": "muse", "text": req["text"], "is_from_me": True}}
+                elif req["op"] == "found":
+                    seen = sum(r["op"] == "found" for r in requests) > 1  # a reply turns up on the second check
+                    match = {"chat": "98765432101234@lid", "lid": "98765432101234@lid", "phone": "+15550100009", "push_name": "Instinct"}
+                    reply = {"ok": True, "active": True, "found": [match] if seen else []}
                 else:
                     reply = {"ok": True, "online": req.get("online")}
                 conn.sendall((json.dumps(reply) + "\n").encode())
@@ -87,6 +91,18 @@ def test_refusals(bridge_socket):
         whatsapp.send(FO, "hi", socket_path=path)
     with pytest.raises(WhatsAppError, match="isn't running"):
         whatsapp.send(MUSE, "hi", socket_path=path.with_name("missing.sock"))
+
+
+def test_find_waits_for_a_reply_then_settles(bridge_socket):
+    path, requests = bridge_socket
+    found = whatsapp.find("Instinct", seconds=5, poll=0.05, settle=0.2, socket_path=path)
+    assert [m["phone"] for m in found] == ["+15550100009"]
+    assert requests[0] == {"op": "find", "name": "Instinct", "seconds": 5}
+
+
+def test_private_id_handles():
+    assert normalize_handle("98765432101234@lid", "whatsapp") == "98765432101234@lid"
+    assert whatsapp.jid("98765432101234@lid") == "98765432101234@lid"
 
 
 def test_follow_shows_only_new_events_for_the_agent(tmp_path):
