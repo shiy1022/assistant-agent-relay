@@ -7,6 +7,8 @@
 #             or a bot ID for Meta's own agents, like 1807055946647697@bot
 #   slack     the agent's Slack member ID, like U07ABCDEF (its profile in Slack →
 #             ⋮ → Copy member ID), or the @name it goes by in the workspace
+#   hark      hark.com: the account signed in there in the dedicated Chrome
+#             (bench hark-login), pinned the first time it's used
 #   imessage  phone number or email (parked; bench-reader is compiled from these
 #             handles, so changing one means reader/install.sh and re-approving it)
 # Agents left blank are skipped.
@@ -41,4 +43,9 @@ agents:
     channel: slack
     handle: "U0CBGVDR955"    # yschore-dot in PJTTY (not the separate ChatGPT app, U0CC083J1PT)
     quiet_period_seconds: 120
+    max_wait_seconds: 1800
+  hark:
+    channel: hark
+    handle: "hark.com"       # its main thread, in the dedicated Chrome
+    quiet_period_seconds: 180  # Hark keeps working in its browser after it first replies
     max_wait_seconds: 1800

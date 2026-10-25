@@ -73,6 +73,29 @@ Then `uv run bench send dots "ping" --listen 120` sends one message and records 
 
 **Why sending goes through the website:** the dot ignores messages sent through Slack's API, because Slack marks each one with the sending app's ID. So `slack: send_via: web` types each prompt into Slack's web client instead. That's done by `SlackWeb` in [bench/channels/slack_web.py](bench/channels/slack_web.py). It's self-contained: it needs only Playwright and the dedicated Chrome, so it can be reused outside the runner. Its docstring shows how. It opens only `app.slack.com/client/<PJTTY's ID>/<the dot's DM>`. It types only after checking that the tab shows that DM in PJTTY and that the DM's own message box is empty, and never into an open thread's box. Then it clicks Send. Slack's markup lives in one place, `Selectors`, in case Slack changes it. Reading still goes through the API. The dot answers each message in a thread, and the runner records thread replies.
 
+## Hark
+
+Hark has no API, Mac app or number to text, so the runner uses hark.com in the same dedicated Chrome as Slack's web client. What was found along the way is in [../HARK_CONNECTION.md](../HARK_CONNECTION.md).
+
+1. Sign that Chrome in to Hark once. It starts Chrome if it isn't running, and waits while you sign in. A passkey saved elsewhere won't be offered there, so use your password or phone.
+
+   ```bash
+   uv run bench hark-login
+   ```
+
+   The account signed in the first time is pinned, with its main thread. Later commands refuse to run if another account is signed in.
+2. Check everything without sending anything:
+
+   ```bash
+   uv run bench hark-status
+   ```
+
+Then `uv run bench send hark --file prompt.txt --listen 600` sends a prompt and records Hark's replies. `bench sync hark` and `bench listen hark` work as for the other channels.
+
+**How it works:** [bench/channels/hark.py](bench/channels/hark.py) fills Hark's message box, checks the text, and clicks Send. It never clicks the box itself, because Hark covers the empty box with a tappable suggested prompt. Replies are read from the JSON hark.com's own page loads, so each message has Hark's ID and server time. While Hark works or browses, that's recorded as a "working" or "browsing" stretch, like typing. Buttons on Hark's messages are recorded, never pressed. `hark-status` also shows Hark's own token meter.
+
+`uv run bench hark-import runs/<folder>` records a Hark run made before this channel existed, with the times it was observed. Import before the first sync, which would otherwise record those messages with the time it syncs.
+
 ## Tests
 
 ```bash

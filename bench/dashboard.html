@@ -20,6 +20,7 @@
   --telegram: #2384c6;
   --whatsapp: #178a4e;
   --slack: #8a3a8f;
+  --hark: #b4521f;
   --imessage: #2f6fe0;
   --mark: #ffe17a;
   --danger: #b8402c;
@@ -40,6 +41,7 @@
     --telegram: #4aa6e6;
     --whatsapp: #3cc07a;
     --slack: #cf86d4;
+    --hark: #ec9363;
     --imessage: #5b92ff;
     --mark: #806b12;
     --danger: #ef7a62;
@@ -60,6 +62,7 @@
   --telegram: #4aa6e6;
   --whatsapp: #3cc07a;
   --slack: #cf86d4;
+  --hark: #ec9363;
   --imessage: #5b92ff;
   --mark: #806b12;
   --danger: #ef7a62;
@@ -100,6 +103,7 @@ header.top .as-of { color: var(--muted); font-size: 13px; }
 .ch-telegram { --ch: var(--telegram); }
 .ch-whatsapp { --ch: var(--whatsapp); }
 .ch-slack { --ch: var(--slack); }
+.ch-hark { --ch: var(--hark); }
 .ch-imessage { --ch: var(--imessage); }
 .chip {
   display: inline-block; font-size: 12px; font-weight: 550; padding: 1px 8px; border-radius: 999px;
@@ -195,7 +199,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 <script>
 (() => {
   const data = JSON.parse(document.getElementById('data').textContent);
-  const CHANNELS = { telegram: 'Telegram', whatsapp: 'WhatsApp', slack: 'Slack', imessage: 'iMessage' };
+  const CHANNELS = { telegram: 'Telegram', whatsapp: 'WhatsApp', slack: 'Slack', hark: 'Hark (web)', imessage: 'iMessage' };
   const label = name => name.charAt(0).toUpperCase() + name.slice(1);
 
   let details = false;
@@ -224,7 +228,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
   // WhatsApp and Slack mark bold with *…*; links become clickable everywhere.
   function format(text, channel) {
     let h = esc(text);
-    if (channel === 'whatsapp' || channel === 'slack') h = h.replace(/\*{1,2}([^*\n]+?)\*{1,2}/g, '<strong>$1</strong>');
+    if (channel === 'whatsapp' || channel === 'slack' || channel === 'hark') h = h.replace(/\*{1,2}([^*\n]+?)\*{1,2}/g, '<strong>$1</strong>');
     return h.replace(/https?:\/\/[^\s<]+/g, url => {
       const trail = (url.match(/(?:[.,;:!?)\]]|&quot;|&#39;)+$/) || [''])[0];
       const href = url.slice(0, url.length - trail.length);

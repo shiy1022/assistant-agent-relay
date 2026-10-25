@@ -12,7 +12,7 @@ INBOX_DIR = ROOT / "data" / "inbox"
 # Secrets and sessions stay outside the repo, readable only by you.
 PRIVATE_DIR = Path.home() / "Library" / "Application Support" / "agent-runner"
 
-CHANNELS = ("telegram", "whatsapp", "slack", "imessage")
+CHANNELS = ("telegram", "whatsapp", "slack", "hark", "imessage")
 
 # iMessage handles end up inside a Swift string literal in bench-reader, so
 # these patterns also keep quotes and backslashes out.
@@ -46,10 +46,16 @@ def normalize_handle(raw: str, channel: str = "imessage") -> str:
 
     telegram: lowercase @username. whatsapp: E.164 phone number, or an address
     like 1807055946647697@bot or …@lid. slack: member ID like U07ABCDEF, or a
-    lowercase @name. imessage: E.164 phone number or lowercase email, as
+    lowercase @name. hark: hark.com, meaning the account signed in there in the
+    dedicated Chrome. imessage: E.164 phone number or lowercase email, as
     Messages stores them.
     """
     raw = raw.strip()
+    if channel == "hark":
+        handle = raw.lower().removeprefix("https://").removeprefix("www.").rstrip("/")
+        if handle != "hark.com":
+            raise ConfigError(f"{raw!r}: a Hark agent's handle is hark.com (the account signed in there in the dedicated Chrome)")
+        return handle
     if channel == "slack":
         if SLACK_MEMBER_ID.match(raw):  # IDs are uppercase as copied; anything else is a name
             return raw

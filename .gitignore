@@ -4,3 +4,4 @@ __pycache__/
 reader/bin/
 data/
 runs/
+.DS_Store

@@ -16,6 +16,9 @@
     bench whatsapp-unlink                 log it out of WhatsApp and delete its session
     bench slack-login                     sign the dedicated Chrome in to the Slack workspace (for send_via: web)
     bench slack-status                    check the Slack token, workspace and agents without sending
+    bench hark-login                      sign the dedicated Chrome in to Hark, and pin the account
+    bench hark-status                     check Hark's sign-in, message box and token meter without sending
+    bench hark-import RUN_DIR             record a Hark run made before the channel existed
     bench reader-status                   (iMessage, parked) is bench-reader running?
 """
 
@@ -108,6 +111,11 @@ def slack_channel(agent: Agent):
     return SlackChannel([agent], on_event=print_event)
 
 
+def hark_channel(agent: Agent):
+    from bench.channels.hark import HarkChannel
+    return HarkChannel([agent], on_event=print_event)
+
+
 def cmd_agents(args: argparse.Namespace) -> None:
     agents = load_agents()
     if not agents:
@@ -147,6 +155,12 @@ def cmd_send(args: argparse.Namespace) -> None:
             slack.send(agent, args.text)
             if args.listen:
                 slack.listen(args.listen)
+    elif agent.channel == "hark":
+        with hark_channel(agent) as hark:
+            hark.sync()
+            hark.send(agent, args.text)
+            if args.listen:
+                hark.listen(args.listen)
     elif agent.channel == "imessage":
         from bench.imessage.send import send
         requested_at = send(agent, args.text)
@@ -176,6 +190,12 @@ def cmd_listen(args: argparse.Namespace) -> None:
             print(recording_message(args.seconds), flush=True)
             slack.listen(args.seconds)
         return
+    if agent and agent.channel == "hark":
+        with hark_channel(agent) as hark:
+            hark.sync()
+            print(recording_message(args.seconds), flush=True)
+            hark.listen(args.seconds)
+        return
 
     async def work(telegram):
         await telegram.sync()
@@ -191,6 +211,10 @@ def cmd_sync(args: argparse.Namespace) -> None:
     if args.agent and get_agent(args.agent).channel == "slack":
         with slack_channel(get_agent(args.agent)) as slack:
             print(f"{slack.sync()} events recorded")
+        return
+    if args.agent and get_agent(args.agent).channel == "hark":
+        with hark_channel(get_agent(args.agent)) as hark:
+            print(f"{hark.sync()} events recorded")
         return
 
     async def work(telegram):
@@ -285,6 +309,24 @@ def cmd_slack_status(args: argparse.Namespace) -> None:
     print(status(list(load_agents().values())))
 
 
+def cmd_hark_login(args: argparse.Namespace) -> None:
+    from bench.channels.hark import sign_in
+    print(sign_in())
+
+
+def cmd_hark_status(args: argparse.Namespace) -> None:
+    from bench.channels.hark import status
+    print(status())
+
+
+def cmd_hark_import(args: argparse.Namespace) -> None:
+    agent = next((a for a in load_agents().values() if a.channel == "hark"), None)
+    if agent is None:
+        raise ChannelError(f"no Hark agent has a handle in {AGENTS_FILE}")
+    with hark_channel(agent) as hark:
+        print(f"{hark.import_run(Path(args.run_dir).expanduser().resolve())} events recorded")
+
+
 def cmd_reader_status(args: argparse.Namespace) -> None:
     result = subprocess.run(
         ["launchctl", "print", f"gui/{os.getuid()}/{READER_LABEL}"], capture_output=True, text=True
@@ -339,16 +381,22 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("whatsapp-unlink").set_defaults(func=cmd_whatsapp_unlink)
     sub.add_parser("slack-login").set_defaults(func=cmd_slack_login)
     sub.add_parser("slack-status").set_defaults(func=cmd_slack_status)
+    sub.add_parser("hark-login").set_defaults(func=cmd_hark_login)
+    sub.add_parser("hark-status").set_defaults(func=cmd_hark_status)
+    p = sub.add_parser("hark-import")
+    p.add_argument("run_dir", help="a runs/… folder with run.json and events.jsonl")
+    p.set_defaults(func=cmd_hark_import)
     sub.add_parser("reader-status").set_defaults(func=cmd_reader_status)
 
     args = parser.parse_args(argv)
+    from bench.channels.hark import HarkError
     from bench.channels.slack import SlackError
     from bench.channels.telegram import TelegramError
     from bench.channels.whatsapp import WhatsAppError
     from bench.imessage.send import SendError
     try:
         args.func(args)
-    except (ConfigError, ChannelError, SendError, SlackError, TelegramError, WhatsAppError) as e:
+    except (ConfigError, ChannelError, HarkError, SendError, SlackError, TelegramError, WhatsAppError) as e:
         print(f"bench: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:
