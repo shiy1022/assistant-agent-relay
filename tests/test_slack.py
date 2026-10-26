@@ -581,6 +581,16 @@ def test_typing_is_refused_anywhere_but_the_conversation(page, problem):
         slack_web.check_page(page, PJTTY_DM)
 
 
+@pytest.mark.parametrize("title", ["Dot (DM) - PJTTY - 1 new item - Slack", "Dot (DM) - PJTTY - 3 new items - Slack"])
+def test_an_unread_count_in_the_title_is_fine(title):
+    slack_web.check_page(FakePage(title=title), PJTTY_DM)
+
+
+def test_an_unread_count_doesnt_hide_another_workspace():
+    with pytest.raises(SlackWebError, match="page title"):
+        slack_web.check_page(FakePage(title="Dot (DM) - Acme - 1 new item - Slack"), PJTTY_DM)
+
+
 def test_slack_web_reuses_the_conversations_tab():
     other = FakePage(url="https://hark.com/chat")
     tab = FakePage()

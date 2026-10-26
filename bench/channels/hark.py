@@ -69,6 +69,7 @@ class Selectors:
     box_name: str = "Message input"                 # the message box, by its accessible name
     box_fallback: str = "[data-testid=chat-input]"
     send_name: str = "Send message"                 # the Send button, which shows only once the box has text
+    send_name_zh: str = "发送消息"                   # the same button when Chrome's language is Chinese
 
 
 FETCH_JS = """async ({path, params}) => {
@@ -220,7 +221,9 @@ def type_and_send(page, text: str, selectors: Selectors = Selectors(), sent_seco
         box.fill(text)  # focuses without a click; the empty box is covered by a tappable suggested prompt
         if box.input_value() != text:
             raise HarkError("the text didn't go into Hark's message box exactly")
-        send = page.get_by_role("button", name=selectors.send_name, exact=True)
+        # By name, never by position: empty or busy, the same spot is the dictation or stop button
+        send = page.get_by_role("button", name=selectors.send_name, exact=True).or_(
+            page.get_by_role("button", name=selectors.send_name_zh, exact=True))
         try:
             send.wait_for(state="visible", timeout=10_000)
         except PlaywrightTimeout:

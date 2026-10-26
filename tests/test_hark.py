@@ -307,11 +307,14 @@ class FakeBox:
 
 
 class FakeSend:
-    def __init__(self, page):
-        self.page = page
+    def __init__(self, page, name):
+        self.page, self.name = page, name
+
+    def or_(self, other):
+        return self if self.name == self.page.send_label else other
 
     def wait_for(self, state, timeout):
-        if not self.page.typed or not self.page.send_shows:
+        if not self.page.typed or not self.page.send_shows or self.name != self.page.send_label:
             raise PlaywrightTimeout("no Send button")
 
     def click(self):
@@ -328,13 +331,14 @@ class FakePage:
         self.log, self.sent, self.visited, self.fetched = [], [], [], []
         self.mangles = self.send_fails = False
         self.send_shows = True
+        self.send_label = Selectors().send_name  # the Send button's name in the page's language
         self.responses = responses or {}
 
     def get_by_role(self, role, name, exact):
         if role == "textbox" and name == Selectors().box_name:
             return FakeBox(self)
-        if role == "button" and name == Selectors().send_name:
-            return FakeSend(self)
+        if role == "button" and name in (Selectors().send_name, Selectors().send_name_zh):
+            return FakeSend(self, name)
         raise AssertionError(f"unexpected role {role} {name}")
 
     def locator(self, selector):
@@ -356,6 +360,13 @@ def test_typing_fills_the_box_and_clicks_send_never_the_box():
     type_and_send(page, "Plan a trip 🌵\nfor two")
     assert page.sent == ["Plan a trip 🌵\nfor two"]
     assert page.log == [("fill", "Plan a trip 🌵\nfor two"), ("click", "send")]
+
+
+def test_send_is_found_when_hark_shows_in_chinese():
+    page = FakePage()
+    page.send_label = Selectors().send_name_zh
+    type_and_send(page, "hello")
+    assert page.sent == ["hello"]
 
 
 def test_text_already_in_the_box_is_never_sent_over():

@@ -37,6 +37,7 @@ Slack's API instead.
 """
 
 import json
+import re
 import sys
 import urllib.request
 from collections.abc import Callable
@@ -49,6 +50,7 @@ from playwright.sync_api import sync_playwright
 __all__ = ["CHROME_COMMAND", "Conversation", "Selectors", "SlackWeb", "SlackWebError", "WebStatus"]
 
 CDP_URL = "http://127.0.0.1:9222"
+UNREAD = re.compile(r" - \d+ new items?(?= - Slack$)")  # Slack adds "- 1 new item" to the title while something's unread
 CHROME_COMMAND = ('open -na "Google Chrome" --args --user-data-dir="$HOME/Library/Application Support/agent-runner/chrome" '
                   "--remote-debugging-port=9222 --disable-background-timer-throttling "
                   "--disable-backgrounding-occluded-windows --disable-renderer-backgrounding")
@@ -229,7 +231,7 @@ LINES_JS = "el => el.children.length"  # the box holds one paragraph per line
 
 def check_page(page, conversation: Conversation, selectors: Selectors = Selectors()) -> None:
     """Refuses unless the tab shows exactly this conversation, in this workspace."""
-    title = page.title()
+    title = UNREAD.sub("", page.title())
     box = page.locator(selectors.box)
     problems = []
     if not page.url.startswith(conversation.url):
