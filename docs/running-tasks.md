@@ -27,7 +27,7 @@ The runner talks to each agent one to one and nothing else is connected to the a
 - **Not yet:** tasks whose setup connects email, calendar, a bank or a store account to the agent. Connecting those is still a TODO. Until then, the rule in [Connections](connections/README.md#before-you-start) stands: connect nothing else to any agent.
 - **By hand:** tasks set in a group chat, like Group Dinner. The runner never reads or sends in group chats.
 
-No agent has a way to reset its context yet, which is also still a TODO. In the `run.json` of a task's first run, note what the agent had already been told, if anything. Notes added by hand are kept.
+No agent has a reset that's passed a full check yet. What's known so far is in [Resetting an agent's context](context-reset.md). Until then, in the `run.json` of a task's first run, note what the agent had already been told, if anything. Notes added by hand are kept.
 
 ## Run a step
 
