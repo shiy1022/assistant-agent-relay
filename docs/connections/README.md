@@ -31,20 +31,36 @@ Do this once on the Mac, before setting up any agent.
    brew install uv go
    ```
 
-2. **Google Chrome** in `/Applications`, for Dots and Hark. Your everyday Chrome is fine, and nothing else needs installing for the browser. See [the dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time).
-3. **Install agent-runner's Python packages,** from `agent-runner/`:
+2. **Get the code from the `telegram-whatsapp-channels` branch.** It's the newest. `main` doesn't have its fixes and docs yet. Clone it into a folder named `agent-runner`, which is the name these docs use:
+
+   ```bash
+   git clone -b telegram-whatsapp-channels https://github.com/shiy1022/assistant-agent-relay.git agent-runner
+   ```
+
+   If you already have a copy, switch it to that branch and update it, from `agent-runner/`. If `git switch` says there's no such branch, run `git fetch origin` first.
+
+   ```bash
+   git switch telegram-whatsapp-channels
+   ```
+
+   ```bash
+   git pull
+   ```
+
+3. **Google Chrome** in `/Applications`, for Dots and Hark. Your everyday Chrome is fine, and nothing else needs installing for the browser. See [the dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time).
+4. **Install agent-runner's Python packages,** from `agent-runner/`:
 
    ```bash
    uv sync
    ```
 
-4. **Run the tests.** They use fakes and touch no real account. They also compile the parked iMessage reader, which needs Xcode's command line tools (`xcode-select --install` if `swiftc` is missing).
+5. **Run the tests.** They use fakes and touch no real account. They also compile the parked iMessage reader, which needs Xcode's command line tools (`xcode-select --install` if `swiftc` is missing).
 
    ```bash
    uv run pytest
    ```
 
-5. **Keep your iPhone nearby.** Telegram and WhatsApp are linked by scanning a QR code with it.
+6. **Keep your iPhone nearby.** Telegram and WhatsApp are linked by scanning a QR code with it.
 
 **Rules for every agent:**
 - Use your own accounts. The runner messages each agent as you.

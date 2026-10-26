@@ -4,6 +4,8 @@ Runs Assistant Bench tasks against personal agents from this Mac and records the
 
 > **Now targeting Wajo and Instinct over WhatsApp.** See [../BUILD_PLAN_WHATSAPP.md](../BUILD_PLAN_WHATSAPP.md). The iMessage channel described below (`reader/`, `bench/imessage/send.py`) is built and tested but parked; you don't need to set it up.
 
+**Use the `telegram-whatsapp-channels` branch.** It's the newest; `main` is behind. How to get it: [Before you start](docs/connections/README.md#before-you-start).
+
 **Setting up an agent, or a connection broke?** [docs/connections/](docs/connections/README.md) has step-by-step first-time setup for each agent and its channel, how to check each connection, and how to reconnect it.
 
 So far (M0): a sender that sends iMessages through the Messages app, and `bench-reader`, the only program allowed to read Messages. It copies the agents' chats, and nothing else, into `data/inbox/`.
