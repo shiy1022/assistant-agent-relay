@@ -100,6 +100,26 @@ Then `uv run bench send hark --file prompt.txt --listen 600` sends a prompt and 
 
 `uv run bench hark-import runs/<folder>` records a Hark run made before this channel existed, with the times it was observed. Import before the first sync, which would otherwise record those messages with the time it syncs.
 
+## The console
+
+`bench dashboard` writes a snapshot. `bench console` is the same view, live in your browser, with a box to send messages from:
+
+```bash
+uv run bench console --open
+```
+
+Leave it running while you use it. Ctrl-C stops it. Only this Mac can reach it, and the address it prints carries a token.
+
+- **To:** pick one agent or several. A message to several goes out on each channel at about the same time. Agents on the same channel, like Muse and Instinct, get it one after the other.
+- **Message** sends it with `bench send … --listen`, recording replies for as long as you pick. Sending the next message ends the last one's listening, so you can keep the conversation going.
+- **Task run** runs `bench run` with the task, step and cell, and writes `runs/…/` as usual. A run is never cut short: messages for its channel wait for it. Stop ends it as Ctrl-C would.
+- **Sync** records what arrived while nothing was recording, as `bench sync` does.
+- **Record a reset** writes down a context reset you did, right after the message where it took effect, as `bench reset-log` does (below).
+
+Each message is sent by running the same bench command you'd type, so the checks, locks and records are the same. Each job's prompt and output are kept in `data/console/<job>/`. If a send fails or you stop it partway, check the conversation before sending again: the message may have gone out anyway.
+
+`--dry-run` shows everything and sends nothing, for trying it out.
+
 ## Running a task
 
 The task sheet isn't in this repo. How to get it, pick a step and score it: [docs/running-tasks.md](docs/running-tasks.md).
@@ -123,23 +143,36 @@ Pages already in `deliverables/` are skipped. `--again` saves them again as they
 What to read, for people and for other agents:
 
 - **`runs/<YYYYmmdd-HHMMSS>-<task>-<agent>/`**: one task prompt sent to one agent.
-  - `run.json`: the task, the agent, when the run started and ended, why it stopped, the IDs of its messages, the links the agent sent, and timing. It has the same keys for every run. Notes added by hand are kept.
+  - `run.json`: the task, the agent, when the run started and ended, why it stopped, the IDs of its messages, the links the agent sent, timing, and `context`: the last context reset before the prompt, if one was recorded, and how many messages and runs came between. It has the same keys for every run. Notes added by hand are kept.
   - `prompt.txt`: the prompt, exactly as sent.
-  - `transcript.jsonl`: every message from the prompt to the end of the run.
+  - `transcript.jsonl`: every message from the prompt to the end of the run, and any context reset made during it.
   - `transcript.md`: the same, for people.
   - `deliverables/`: what the agent made outside the chat, like the page Wajo links to. `bench run` saves those itself (above). Files put here by hand are listed in `run.json` the next time it's rebuilt.
   - `raw/`: anything else captured along the way.
-- **`data/conversations/<agent>.jsonl`**: everything recorded with each agent, one message per line, as last edited, in the order sent.
+- **`data/conversations/<agent>.jsonl`**: everything recorded with each agent, one message per line, as last edited, in the order sent. Each context reset is a line too, with `"role": "reset"`, where it took effect.
+- **`data/resets.jsonl`**: every context reset written down, one per line (below).
 
 Both use the same fields for every channel. They're described at the top of [bench/conversation.py](bench/conversation.py) and [bench/runs.py](bench/runs.py).
 
-`data/conversations/` is written again after every `send`, `run`, `listen` and `sync`, or with `uv run bench export`. Messages that arrive after a run ends, like Telegram messages picked up by a later `bench sync`, reach a run's transcript with:
+`data/conversations/` is written again after every `send`, `run`, `listen`, `sync` and `reset-log`, or with `uv run bench export`. Messages that arrive after a run ends, like Telegram messages picked up by a later `bench sync`, reach a run's transcript with:
 
 ```bash
 uv run bench run-rebuild runs/<folder>
 ```
 
 The channel inboxes (`data/inbox/<channel>/messages.jsonl`, and WhatsApp's in `~/Library/Application Support/agent-runner/whatsapp/inbox/`) are the raw event logs these are built from. In an inbox, a message appears again on every edit, receipt or reaction, and lines aren't in the order sent, so don't read them directly.
+
+## Context resets
+
+A reset mostly happens outside what the runner records: you ask the agent to forget, send it `/new`, or delete something on its website. So write each one down as soon as it's done, including attempts that didn't work, or later runs can't tell what the agent was told before. In the console, use **Record a reset**. Or:
+
+```bash
+uv run bench reset-log muse --how "Asked Muse to forget everything; you said yes from your phone" --after 3EB0B86206C514E4FAB2D0 --result "Says its memory is empty"
+```
+
+`--after` is the message the reset took effect after, usually the agent's "done" (its id in `data/conversations/<agent>.jsonl`, or the id's last part). Without it, the reset is placed at `--at TIME`, or now. `--method` is `asked` (the default), `command` or `by hand`. `uv run bench reset-log` lists them all, and `--remove ID` takes back one written down by mistake.
+
+Clearing a Telegram chat is found without this, from the notice Telegram leaves in the chat. The dashboard and the console show each reset as a marked divider, and each message that did it as part of the reset. What's known about resetting each agent: [docs/context-reset.md](docs/context-reset.md).
 
 ## Tests
 

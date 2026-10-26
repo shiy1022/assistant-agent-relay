@@ -92,9 +92,15 @@ An agent saying "I don't remember" proves nothing. It may still use the fact, or
 - **Before:** do the agent's reset, and check its pages are empty.
 - **After:** scan the transcript for every made-up value ever used, and for phrases like "last time" and "you mentioned".
 
+## Recording a reset
+
+Write down every reset, and every attempt, as soon as it's done: `uv run bench reset-log AGENT --how "…" --after MESSAGE`, or **Record a reset** in the console. It then shows where it took effect in `data/conversations/<agent>.jsonl`, in run transcripts, and in the dashboard and the console. Each later run's `run.json` names it under `context`, with how many messages and runs came after it. Clearing a Telegram chat is found by itself. See [Context resets](../README.md#context-resets).
+
+The quick tests of 2026-10-25 are written down already, timed by their messages. Deleting the chats on wajo.ai left no message, so it's placed at the latest it can have been, just before the next question at 15:34.
+
 ## Still to do
 
-- `bench reset <agent>`: does the scripted part of each agent's reset, walks you through the rest, and records where the reset happened in the conversation log.
-- A `context` block in `run.json`: which reset was done, when, and what backs it.
+- `bench reset <agent>`: does the scripted part of each agent's reset and walks you through the rest. Recording where it happened is done (`bench reset-log`).
+- The `context` block in `run.json` has the last reset before the run, and the messages and runs since. Still to add: the reset's level, and the check that backs it.
 - `bench leakcheck`: the per-run scan.
 - The full check above for each agent, starting with Muse, Hark and Dots.

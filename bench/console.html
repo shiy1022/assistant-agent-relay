@@ -1,0 +1,1021 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Console</title>
+<!-- Page for `bench console` (bench/console.py), which serves it with its token filled in.
+     The conversation view follows bench/dashboard.html; keep the two looking alike. -->
+<style>
+:root {
+  --bg: #f5f5f2;
+  --surface: #ffffff;
+  --surface-2: #efeeea;
+  --border: #e2e0da;
+  --text: #1c1c1a;
+  --muted: #66655f;
+  --faint: #97958d;
+  --me: #2d56c9;
+  --me-text: #ffffff;
+  --me-link: #dfe7ff;
+  --telegram: #2384c6;
+  --whatsapp: #178a4e;
+  --slack: #8a3a8f;
+  --hark: #b4521f;
+  --imessage: #2f6fe0;
+  --mark: #ffe17a;
+  --danger: #b8402c;
+  --reset: #a25a00;
+  --ok: #1f8a4c;
+  --warn-bg: #fff4d6;
+  --warn-text: #6b4e00;
+  --shadow: 0 1px 2px rgba(20, 20, 15, 0.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141413;
+    --surface: #1e1e1c;
+    --surface-2: #262623;
+    --border: #34332f;
+    --text: #ecebe6;
+    --muted: #a6a49c;
+    --faint: #7a7870;
+    --me: #3b63d6;
+    --me-text: #ffffff;
+    --me-link: #dfe7ff;
+    --telegram: #4aa6e6;
+    --whatsapp: #3cc07a;
+    --slack: #cf86d4;
+    --hark: #ec9363;
+    --imessage: #5b92ff;
+    --mark: #806b12;
+    --danger: #ef7a62;
+    --reset: #f0b45e;
+    --ok: #4cc47f;
+    --warn-bg: #3a3018;
+    --warn-text: #f1d58a;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141413;
+  --surface: #1e1e1c;
+  --surface-2: #262623;
+  --border: #34332f;
+  --text: #ecebe6;
+  --muted: #a6a49c;
+  --faint: #7a7870;
+  --me: #3b63d6;
+  --me-text: #ffffff;
+  --me-link: #dfe7ff;
+  --telegram: #4aa6e6;
+  --whatsapp: #3cc07a;
+  --slack: #cf86d4;
+  --hark: #ec9363;
+  --imessage: #5b92ff;
+  --mark: #806b12;
+  --danger: #ef7a62;
+  --reset: #f0b45e;
+  --ok: #4cc47f;
+  --warn-bg: #3a3018;
+  --warn-text: #f1d58a;
+  --shadow: none;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+.wrap { max-width: 1240px; margin: 0 auto; padding: 28px 16px 40px; }
+
+header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin-bottom: 16px; }
+header.top h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.live { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
+.live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.live.on .dot { background: var(--ok); }
+.live.off .dot { background: var(--danger); }
+.live.off { color: var(--danger); }
+.banner { margin: 0 0 14px; padding: 9px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-text); font-size: 14px; }
+.banner code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+
+.tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.tab {
+  position: relative; text-align: left; cursor: pointer;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; box-shadow: var(--shadow); display: flex; gap: 12px; align-items: center;
+}
+.tab:hover { border-color: var(--faint); }
+.tab[aria-selected="true"] { border-color: var(--ch); box-shadow: 0 0 0 1px var(--ch) inset; }
+.tab .who { min-width: 0; }
+.tab .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.tab .sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.busy { font-size: 11.5px; font-weight: 600; color: var(--ch); background: color-mix(in srgb, var(--ch) 13%, transparent); padding: 0 7px; border-radius: 999px; }
+
+.avatar {
+  flex: none; width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 650; font-size: 15px;
+  background: color-mix(in srgb, var(--ch) 16%, transparent); color: var(--ch);
+}
+.avatar.small { width: 26px; height: 26px; font-size: 12.5px; }
+.ch-telegram { --ch: var(--telegram); }
+.ch-whatsapp { --ch: var(--whatsapp); }
+.ch-slack { --ch: var(--slack); }
+.ch-hark { --ch: var(--hark); }
+.ch-imessage { --ch: var(--imessage); }
+.chip {
+  display: inline-block; font-size: 12px; font-weight: 550; padding: 1px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--ch, var(--faint)) 14%, transparent); color: var(--ch, var(--muted));
+}
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
+.agent-head { padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.agent-head .title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.agent-head h2 { margin: 0; font-size: 18px; font-weight: 650; }
+.agent-head .handle { color: var(--muted); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.agent-head .actions { margin-left: auto; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 14px; }
+.stat .label { color: var(--muted); font-size: 12px; }
+.stat .value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat .value.small { font-size: 14px; font-weight: 550; }
+
+.btn {
+  cursor: pointer; font-size: 13.5px; font-weight: 550; padding: 5px 12px; border-radius: 8px;
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+}
+.btn:hover:not(:disabled) { border-color: var(--faint); }
+.btn:disabled { cursor: default; color: var(--faint); }
+.btn.danger { color: var(--danger); }
+.btn.primary { background: var(--me); border-color: var(--me); color: var(--me-text); font-weight: 600; padding: 7px 16px; }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); border-color: var(--me); }
+.btn.primary:disabled { background: var(--surface-2); border-color: var(--border); color: var(--faint); }
+
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
+.toolbar input[type="search"] {
+  flex: 1 1 220px; min-width: 0; font-size: 14px;
+  background: var(--surface-2); border: 1px solid transparent; border-radius: 8px; padding: 7px 10px;
+}
+.toolbar input[type="search"]:focus { outline: none; border-color: var(--faint); }
+.toolbar label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
+.toolbar .count { color: var(--faint); font-size: 13px; margin-left: auto; }
+
+.thread { padding: 8px 18px 22px; min-height: 160px; }
+.day { text-align: center; margin: 18px 0 10px; }
+.day span { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); padding: 3px 10px; border-radius: 999px; }
+.run { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; color: var(--muted); font-size: 12.5px; }
+.run::before, .run::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
+.run strong { color: var(--text); font-weight: 600; }
+.thread-group { margin: 14px 0 18px; padding-left: 12px; border-left: 2px solid color-mix(in srgb, var(--ch) 40%, transparent); }
+.thread-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 4px; font-size: 12.5px; color: var(--muted); }
+.thread-head .n { font-weight: 650; color: var(--ch); }
+.thread-head .t { color: var(--text); font-weight: 550; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.msg { display: flex; flex-direction: column; margin: 6px 0; }
+.msg.me { align-items: flex-end; }
+.msg.agent { align-items: flex-start; }
+.bubble { max-width: min(640px, 86%); padding: 8px 12px; border-radius: 16px; overflow-wrap: anywhere; }
+.msg.agent .bubble { background: var(--surface-2); border-bottom-left-radius: 5px; }
+.msg.me .bubble { background: var(--me); color: var(--me-text); border-bottom-right-radius: 5px; }
+.msg.me .bubble a { color: var(--me-link); }
+.bubble a { color: var(--ch); }
+.msg.pending .bubble { background: transparent; color: var(--text); border: 1.5px dashed color-mix(in srgb, var(--me) 55%, transparent); }
+.msg.pending .bubble a { color: var(--me); }
+.text { white-space: pre-wrap; }
+.text.empty { color: var(--faint); font-style: italic; }
+.msg.me .text.empty { color: var(--me-link); }
+.msg.deleted .text { text-decoration: line-through; opacity: 0.7; }
+.quote {
+  font-size: 13px; padding: 4px 8px; margin-bottom: 6px; border-left: 3px solid currentColor;
+  opacity: 0.75; white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+}
+.preview { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; }
+.msg.me .preview { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); }
+.preview .site { color: var(--muted); font-size: 12px; }
+.msg.me .preview .site { color: var(--me-link); }
+.preview .ptitle { font-weight: 600; }
+.buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.buttons span { font-size: 13px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ch); }
+.files { margin-top: 6px; font-size: 13px; }
+.files a, .files span { display: inline-block; margin-right: 10px; }
+.reactions { margin-top: 3px; font-size: 13px; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--faint); margin-top: 3px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.meta .latency { color: var(--ch); font-weight: 550; }
+.meta .warn { color: var(--danger); }
+.meta .live-tag { color: var(--ok); font-weight: 550; }
+.detail { display: none; }
+.show-details .detail { display: inline; }
+.typing { font-size: 12.5px; color: var(--faint); margin: 4px 0 4px 4px; font-style: italic; }
+.typing.now { color: var(--ch); }
+/* A context reset (bench/resets.py): everything below it came after the reset. Looks as in bench/dashboard.html. */
+.reset { margin: 16px 0; padding: 9px 12px; border-left: 3px solid var(--reset); border-radius: 4px 10px 10px 4px;
+  background: color-mix(in srgb, var(--reset) 9%, transparent); font-size: 13.5px; }
+.reset-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.reset-mark { color: var(--reset); font-weight: 700; }
+.reset-meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.reset-how { margin-top: 2px; }
+.reset-result { margin-top: 3px; color: var(--muted); }
+.reset-result b { font-weight: 600; color: var(--text); }
+.meta .reset-tag { color: var(--reset); font-weight: 550; }
+.notice { text-align: center; margin: 10px 0; font-size: 12.5px; color: var(--muted); }
+.reset-form { padding: 14px 18px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--reset) 6%, var(--surface)); display: grid; gap: 9px; }
+.reset-form .rf-title { font-weight: 650; }
+.reset-form .rf-title span { color: var(--reset); }
+.reset-form label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
+.reset-form textarea, .reset-form input, .reset-form select {
+  font-size: 14px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); min-width: 0; }
+.reset-form textarea { resize: vertical; min-height: 54px; }
+.reset-form .rf-row { display: flex; flex-wrap: wrap; align-items: end; gap: 9px 12px; }
+.reset-form .rf-row label { flex: 1 1 200px; }
+.reset-form .rf-note { font-size: 12.5px; color: var(--muted); }
+.reset-form .rf-err { color: var(--danger); font-size: 13px; font-weight: 550; }
+mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+/* The send box stays at the bottom of the window while you read. */
+.composer {
+  position: sticky; bottom: 0; z-index: 2; padding: 12px 18px 14px;
+  background: var(--surface); border-top: 1px solid var(--border); border-radius: 0 0 14px 14px;
+}
+.to { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.to-label { font-size: 13px; color: var(--muted); margin-right: 2px; }
+.recipient {
+  cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 550;
+  padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+}
+.recipient::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ch); opacity: 0.35; }
+.recipient[aria-pressed="true"] { color: var(--ch); border-color: var(--ch); background: color-mix(in srgb, var(--ch) 10%, transparent); }
+.recipient[aria-pressed="true"]::before { opacity: 1; }
+.recipient.all { color: var(--muted); }
+.recipient.all::before { display: none; }
+textarea#text {
+  display: block; width: 100%; min-height: 64px; max-height: 40vh; resize: vertical;
+  padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); line-height: 1.45;
+}
+textarea#text:focus, .options input:focus, .options select:focus { outline: none; border-color: var(--faint); }
+.options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 9px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg button { cursor: pointer; border: 0; background: var(--surface); padding: 4px 11px; font-size: 13.5px; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.options label { font-size: 13.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.options select, .options input {
+  font-size: 13.5px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-2);
+}
+.run-fields { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 320px; }
+.run-fields input { flex: 1 1 90px; min-width: 0; }
+.run-fields input#task { flex: 2 1 160px; }
+.options .btn.primary { margin-left: auto; }
+.hint { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.hint .err { color: var(--danger); font-weight: 550; }
+.hint kbd { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; }
+.hint ul { margin: 4px 0 0; padding-left: 18px; }
+[hidden] { display: none !important; }
+
+.activity { position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
+.activity h2 { margin: 0; padding: 14px 16px 10px; font-size: 15px; font-weight: 650; border-bottom: 1px solid var(--border); }
+.activity h2 small { font-weight: 450; color: var(--faint); font-size: 12.5px; margin-left: 4px; }
+.jobs { overflow: auto; padding: 4px 0; }
+.job { padding: 10px 16px; border-bottom: 1px solid var(--border); }
+.job:last-child { border-bottom: 0; }
+.job .row { display: flex; align-items: center; gap: 8px; }
+.job .what { font-weight: 600; font-size: 14px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job .what span { font-weight: 450; color: var(--muted); }
+.job .state { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.job .state.running { background: color-mix(in srgb, var(--ch) 14%, transparent); color: var(--ch); }
+.job .state.failed { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.job .state.done { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.job .excerpt { font-size: 13px; color: var(--text); margin: 4px 0 0 34px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.job .status { font-size: 12.5px; color: var(--muted); margin: 3px 0 0 34px; font-variant-numeric: tabular-nums; }
+.job .status .err { color: var(--danger); }
+.job .acts { display: flex; gap: 6px; margin: 6px 0 0 34px; }
+.job .btn { font-size: 12.5px; padding: 2px 9px; }
+.job details { margin: 6px 0 0 34px; font-size: 12px; }
+.job summary { cursor: pointer; color: var(--muted); }
+.job pre { margin: 4px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 220px; overflow: auto; }
+.jobs .none { padding: 18px 16px; color: var(--muted); font-size: 13.5px; }
+
+.empty-state { padding: 48px 18px; text-align: center; color: var(--muted); }
+footer { margin-top: 22px; color: var(--muted); font-size: 13px; }
+footer ul { margin: 6px 0 10px; padding-left: 18px; }
+footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
+
+@media (max-width: 960px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .activity { position: static; max-height: none; }
+}
+@media (max-width: 560px) {
+  .wrap { padding-top: 20px; }
+  .bubble { max-width: 92%; }
+  .toolbar .count { margin-left: 0; }
+  .composer { padding: 10px 12px 12px; }
+  .options .btn.primary { margin-left: 0; width: 100%; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1>Agent console</h1>
+    <div class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></div>
+  </header>
+  <div class="banner" id="banner" hidden></div>
+  <div class="tabs" role="tablist" id="tabs"></div>
+  <div class="layout">
+    <section class="panel" id="panel">
+      <div id="head"></div>
+      <form class="reset-form" id="reset-form" autocomplete="off" hidden>
+        <div class="rf-title">Record a context reset for <span id="rf-agent"></span></div>
+        <label>What was done
+          <textarea id="rf-how" rows="2" placeholder="Like: Asked it to forget everything saved about me, and it said done"></textarea></label>
+        <div class="rf-row">
+          <label>How
+            <select id="rf-method">
+              <option value="asked">Asked it to forget</option>
+              <option value="command">Sent a command, like /new</option>
+              <option value="by hand">Did it by hand, outside the chat</option>
+            </select></label>
+          <label>Took effect
+            <select id="rf-after"></select></label>
+        </div>
+        <label>Result, if known
+          <input id="rf-result" placeholder="Like: It says its memory is empty; not checked yet"></label>
+        <div class="rf-note">Nothing is sent: this only writes the reset down, in <code>data/resets.jsonl</code>, so the conversation shows where it happened.</div>
+        <div class="rf-row"><button class="btn primary" type="submit">Record reset</button><button class="btn" type="button" id="rf-cancel">Cancel</button><span class="rf-err" id="rf-err"></span></div>
+      </form>
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Search messages" aria-label="Search messages">
+        <label><input type="checkbox" id="details"> Receipts, edits and typing</label>
+        <span class="count" id="count"></span>
+      </div>
+      <div class="thread" id="thread"></div>
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="to"><span class="to-label">To</span><span id="recipients"></span></div>
+        <textarea id="text" rows="2" placeholder="Write a message" aria-label="Message"></textarea>
+        <div class="options">
+          <div class="seg" role="group" aria-label="What to send">
+            <button type="button" data-mode="message" aria-pressed="true">Message</button>
+            <button type="button" data-mode="run" aria-pressed="false">Task run</button>
+          </div>
+          <label data-mode-only="message">then record replies for
+            <select id="listen">
+              <option value="0">no time</option>
+              <option value="60">1 min</option>
+              <option value="120">2 min</option>
+              <option value="300">5 min</option>
+              <option value="600">10 min</option>
+              <option value="1800">30 min</option>
+            </select>
+          </label>
+          <div class="run-fields" data-mode-only="run" hidden>
+            <input id="task" placeholder="Task, like Travel vF Golden" aria-label="Task (the tab's name in the task sheet)">
+            <input id="step" placeholder="Step, like DAY 1 CHECKPOINT" aria-label="Step (column A)">
+            <input id="cell" placeholder="Cell, like D2" aria-label="Cell the prompt came from">
+          </div>
+          <button class="btn primary" id="send" type="submit" disabled>Send</button>
+        </div>
+        <div class="hint" id="hint" aria-live="polite"></div>
+      </form>
+    </section>
+    <aside class="panel activity" aria-label="Sent from this console">
+      <h2>Sent from this console<small id="jobs-count"></small></h2>
+      <div class="jobs" id="jobs"></div>
+    </aside>
+  </div>
+  <footer id="footer"></footer>
+</div>
+
+<script>
+(() => {
+  const TOKEN = __CONSOLE_TOKEN__;
+  const CHANNELS = { telegram: 'Telegram', whatsapp: 'WhatsApp', slack: 'Slack', hark: 'Hark (web)', imessage: 'iMessage' };
+  const POLL_MS = 2000;
+  const label = name => name.charAt(0).toUpperCase() + name.slice(1);
+  const $ = id => document.getElementById(id);
+
+  // Per-viewer conveniences; the page works the same without them.
+  const store = {
+    get(k, fallback) { try { const v = localStorage.getItem('console.' + k); return v == null ? fallback : v; } catch (e) { return fallback; } },
+    set(k, v) { try { localStorage.setItem('console.' + k, v); } catch (e) {} },
+  };
+
+  let data = null;        // the snapshot of what's recorded, as `bench dashboard` builds it
+  let version = null;
+  let jobs = [];
+  let sendable = [];      // agents with a handle, which can be sent to
+  let dryRun = false;
+  let serverNow = null;   // the console's clock at the last poll, against this browser's
+  let clockOffset = 0;
+  let connected = null;
+  let lastOk = null;
+  let watchError = null;
+  let details = store.get('details', '0') === '1';
+  let query = '';
+  let mode = store.get('mode', 'message') === 'run' ? 'run' : 'message';
+  let recipients = null;  // names picked in "To", or null to follow the selected tab
+  let sending = false;
+  let sendError = '';
+  let threadKey = '';
+  const openLogs = new Map();  // job id → whether its Output is open, once you've toggled it
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const d = iso => new Date(iso);
+  const now = () => new Date(Date.now() + clockOffset);
+  const time = iso => d(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const day = iso => d(iso).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+  const dateTime = iso => d(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const sameDay = (a, b) => d(a).toDateString() === d(b).toDateString();
+  const when = iso => {
+    if (!iso) return '—';
+    return sameDay(iso, now()) ? time(iso) : dateTime(iso);
+  };
+  const duration = s => {
+    if (s == null) return '—';
+    s = Math.round(s);
+    if (s < 60) return s + 's';
+    if (s < 3600) return Math.floor(s / 60) + 'm ' + String(s % 60).padStart(2, '0') + 's';
+    return Math.floor(s / 3600) + 'h ' + String(Math.floor(s % 3600 / 60)).padStart(2, '0') + 'm';
+  };
+  const gap = (a, b) => (d(b) - d(a)) / 1000;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  // Polls redraw only what changed, so focus, selection and open sections survive.
+  const drawn = new WeakMap();
+  const setHTML = (el, html) => { if (drawn.get(el) !== html) { el.innerHTML = html; drawn.set(el, html); } };
+
+  // WhatsApp and Slack mark bold with *…*; links become clickable everywhere.
+  function format(text, channel) {
+    let h = esc(text);
+    if (channel === 'whatsapp' || channel === 'slack' || channel === 'hark') h = h.replace(/\*{1,2}([^*\n]+?)\*{1,2}/g, '<strong>$1</strong>');
+    return h.replace(/https?:\/\/[^\s<]+/g, url => {
+      const trail = (url.match(/(?:[.,;:!?)\]]|&quot;|&#39;)+$/) || [''])[0];
+      const href = url.slice(0, url.length - trail.length);
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${href}</a>${trail}`;
+    });
+  }
+
+  const searchable = m => [m.text, m.link_preview && m.link_preview.title, m.link_preview && m.link_preview.url,
+    ...(m.buttons || []).flat().map(b => b.text), ...(m.attachments || []).map(a => a.name)]
+    .filter(Boolean).join('\n').toLowerCase();
+
+  function highlight(root, q) {
+    if (!q) return;
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+    for (const node of nodes) {
+      const lower = node.nodeValue.toLowerCase();
+      if (!lower.includes(q)) continue;
+      const frag = document.createDocumentFragment();
+      let i = 0, j;
+      while ((j = lower.indexOf(q, i)) !== -1) {
+        frag.append(node.nodeValue.slice(i, j));
+        const mark = document.createElement('mark');
+        mark.textContent = node.nodeValue.slice(j, j + q.length);
+        frag.append(mark);
+        i = j + q.length;
+      }
+      frag.append(node.nodeValue.slice(i));
+      node.replaceWith(frag);
+    }
+  }
+
+  // MARK: Jobs
+
+  const RESET_METHODS = { asked: 'asked to forget', command: 'command', 'by hand': 'done by hand' };
+  const NOTICES = { history_clear: 'You cleared the chat history in Telegram' };
+
+  function resetHTML(r) {
+    const meta = [RESET_METHODS[r.method] || r.method, (r.approximate ? 'by ' : '') + time(r.date)];
+    if (r.source === 'detected') meta.push('found in what Telegram recorded');
+    return `<div class="reset" role="note" title="${esc(r.id)}${r.approximate ? ': the time isn\'t known exactly; this is the latest it can have been' : ''}">
+      <div class="reset-top"><span class="reset-mark">↺ Context reset</span><span class="reset-meta">${meta.map(esc).join(' · ')}</span></div>
+      <div class="reset-how">${esc(r.how)}</div>
+      ${r.result ? `<div class="reset-result"><b>Result:</b> ${esc(r.result)}</div>` : ''}
+    </div>`;
+  }
+
+  const ACTIVE = new Set(['queued', 'running']);
+  const agentInfo = name => sendable.find(a => a.name === name);
+  const channelOf = name => (agentInfo(name) || (data && data.agents.find(a => a.name === name)) || {}).channel;
+  const laneJob = channel => jobs.find(j => j.channel === channel && j.state === 'running');
+  const kindLabel = j => j.kind === 'sync' ? 'Sync' : j.kind === 'run' ? 'Task run' : 'Message';
+
+  function jobStatus(j) {
+    const listenUntil = j.sent_at && j.listen ? new Date(d(j.sent_at).getTime() + j.listen * 1000).toISOString() : null;
+    if (j.state === 'queued') {
+      const ahead = laneJob(j.channel);
+      return ahead ? `Waiting for ${label(ahead.agent)}'s ${kindLabel(ahead).toLowerCase()} on ${CHANNELS[j.channel]}` : 'Starting…';
+    }
+    if (j.state === 'running') {
+      if (j.stopping && !j.preempted) return 'Stopping as Ctrl-C would, so its records get written…';
+      if (j.kind === 'sync') return 'Recording what arrived…';
+      if (!j.sent_at) return j.kind === 'run' ? 'Starting the run and sending…' : 'Sending…';
+      const sent = `Sent ${time(j.sent_at)}`;
+      if (j.preempted) return `${sent} · stopping to send your next message`;
+      if (j.kind === 'run') return `${sent} · recording until ${label(j.agent)} is quiet`;
+      return listenUntil ? `${sent} · recording replies until ${time(listenUntil)}` : sent;
+    }
+    const ended = j.ended_at ? time(j.ended_at) : '';
+    const sentNote = j.sent_at ? `Sent ${time(j.sent_at)}` : '';
+    if (j.state === 'done') {
+      if (j.kind === 'sync') return `Synced ${ended}`;
+      if (dryRun) return 'Dry run: nothing was sent';
+      if (j.preempted) return `${sentNote} · recorded until your next message`;
+      return [sentNote || 'Finished', j.kind === 'run' ? `run written ${ended}` : `recorded until ${ended}`].join(' · ');
+    }
+    if (j.state === 'cancelled') return 'Cancelled before sending';
+    const unsure = j.kind !== 'sync' && !j.sent_at
+      ? ' A message can go out even when sending reports an error, so check the conversation before sending it again.' : '';
+    if (j.state === 'stopped') return (sentNote ? `${sentNote} · stopped ${ended}` : `Stopped ${ended}.`) + unsure;
+    return `<span class="err">${esc(j.error || 'Failed')}</span>${sentNote ? ' · ' + sentNote : '.'}${unsure}`;
+  }
+
+  function renderJobs() {
+    const list = jobs.slice().reverse();
+    const active = jobs.filter(j => ACTIVE.has(j.state)).length;
+    $('jobs-count').textContent = active ? ` · ${active} active` : '';
+    setHTML($('jobs'), list.length ? list.map(j => {
+      const what = j.kind === 'run' ? [j.task, j.step].filter(Boolean).join(' · ') : j.kind === 'sync' ? 'bench sync' : '';
+      const stopLabel = j.state === 'queued' ? 'Cancel' : j.stopping ? 'Force stop' : j.kind === 'send' && j.sent_at ? 'Stop recording' : 'Stop';
+      const stateCls = j.state === 'running' ? 'running' : j.state === 'failed' ? 'failed' : j.state === 'done' ? 'done' : '';
+      return `<div class="job ch-${esc(j.channel)}">
+        <div class="row"><span class="avatar small">${esc(label(j.agent).charAt(0))}</span>
+          <span class="what">${esc(label(j.agent))} <span>· ${esc(kindLabel(j))}${what ? ': ' + esc(what) : ''}</span></span>
+          <span class="state ${stateCls}">${esc(j.state)}</span></div>
+        ${j.text ? `<div class="excerpt">${esc(j.text)}</div>` : ''}
+        <div class="status">${jobStatus(j)}</div>
+        ${ACTIVE.has(j.state) ? `<div class="acts"><button class="btn${j.stopping ? ' danger' : ''}" data-stop="${esc(j.id)}" title="${
+          j.state === 'queued' ? 'Take it off the queue; nothing is sent' : j.stopping ? 'End it now, without waiting for it to write its records' : 'Stop as Ctrl-C would; it still writes what it recorded'
+        }">${stopLabel}</button></div>` : ''}
+        ${j.log && j.log.length ? `<details data-job="${esc(j.id)}"${(openLogs.has(j.id) ? openLogs.get(j.id) : j.state === 'failed') ? ' open' : ''}><summary>Output</summary><pre>${esc(j.log.join('\n'))}</pre></details>` : ''}
+      </div>`;
+    }).join('') : `<div class="none">Nothing sent yet. Messages you send are run as <code>bench send</code> or <code>bench run</code>, and show up here.</div>`);
+  }
+
+  // MARK: Conversation
+
+  // The chosen agent lives here, and in the URL's #hash.
+  let selected = decodeURIComponent(location.hash.slice(1));
+
+  function current() {
+    if (!data) return null;
+    return data.agents.find(a => a.name === selected)
+      || data.agents.find(a => a.items.some(i => i.type === 'message'))
+      || data.agents[0];
+  }
+
+  function renderTabs(agent) {
+    setHTML($('tabs'), data.agents.map(a => {
+      const n = a.stats.sent + a.stats.received;
+      const sub = `${CHANNELS[a.channel] || a.channel} · ${plural(n, 'message')}` + (a.stats.last ? ` · last ${when(a.stats.last)}` : '');
+      const busy = jobs.find(j => j.agent === a.name && ACTIVE.has(j.state));
+      const badge = busy ? `<span class="busy">${busy.state === 'queued' ? 'queued' : busy.sent_at ? 'recording' : busy.kind === 'sync' ? 'syncing' : 'sending'}</span>` : '';
+      return `<button class="tab ch-${esc(a.channel)}" role="tab" aria-selected="${a === agent}" data-agent="${esc(a.name)}">
+        <span class="avatar">${esc(label(a.name).charAt(0))}</span>
+        <span class="who"><div class="name">${esc(label(a.name))}${badge}</div><div class="sub">${esc(sub)}</div></span>
+      </button>`;
+    }).join(''));
+  }
+
+  function renderHead(agent) {
+    const panel = $('panel');
+    panel.className = `panel ch-${agent ? agent.channel : ''}`;
+    if (!agent) {
+      $('head').innerHTML = `<div class="empty-state">No agents with a handle in config/agents.yaml, and nothing recorded.</div>`;
+      return;
+    }
+    const s = agent.stats;
+    const info = agentInfo(agent.name);
+    const busy = info && laneJob(info.channel);
+    const sync = info && info.can_sync
+      ? `<button class="btn" id="sync" ${busy ? 'disabled' : ''} title="${busy ? `${CHANNELS[info.channel]} is busy: ${esc(label(busy.agent))}'s ${kindLabel(busy).toLowerCase()} is recording` : 'Record what arrived while nothing was recording (bench sync)'}">Sync</button>`
+      : '';
+    const record = info ? `<button class="btn" id="record-reset" title="Write down a reset you did, so the conversation shows where it happened">Record a reset</button>` : '';
+    setHTML($('head'), `<div class="agent-head">
+      <div class="title"><span class="avatar">${esc(label(agent.name).charAt(0))}</span><h2>${esc(label(agent.name))}</h2>
+        <span class="chip">${esc(CHANNELS[agent.channel] || agent.channel)}</span><span class="handle">${esc(agent.handle || '')}</span>
+        <span class="actions">${record} ${sync}</span></div>
+      <div class="stats">
+        <div class="stat"><div class="label">You sent</div><div class="value">${s.sent}</div></div>
+        <div class="stat"><div class="label">${esc(label(agent.name))} sent</div><div class="value">${s.received}</div></div>
+        <div class="stat"><div class="label">Median first reply</div><div class="value">${duration(s.median_reply_seconds)}</div></div>
+        <div class="stat"><div class="label">First message</div><div class="value small">${s.first ? dateTime(s.first) : '—'}</div></div>
+        <div class="stat"><div class="label">Last message</div><div class="value small">${s.last ? dateTime(s.last) : '—'}</div></div>
+        <div class="stat" title="${plural(s.resets, 'context reset')} recorded"><div class="label">Last reset</div><div class="value small">${s.last_reset ? dateTime(s.last_reset) : 'none recorded'}</div></div>
+      </div>
+    </div>`);
+  }
+
+  function threadHTML(t, agent) {
+    const who = t.from_me ? 'You' : label(agent.name);
+    const facts = [plural(t.messages, 'message')];
+    if (t.first_reply_seconds != null) facts.push(`first reply in ${duration(t.first_reply_seconds)}`);
+    else if (t.from_me && t.messages === 1) facts.push('no reply');
+    return `<div class="thread-head" title="Slack thread started ${esc(d(t.date).toString())}">
+      <span class="n">Thread ${t.number}</span>
+      ${t.title ? `<span class="t">${esc(who)}: “${esc(t.title)}”</span>` : ''}
+      <span>${facts.join(' · ')}</span>
+    </div>`;
+  }
+
+  function messageHTML(m, agent, showDate = false) {
+    if (m.service) {  // a notice Telegram left in the chat, not a message
+      return `<div class="notice" title="${esc(d(m.date).toString())}">${esc(NOTICES[m.service] || m.service.replace(/_/g, ' '))} · ${showDate ? dateTime(m.date) : time(m.date)}</div>`;
+    }
+    const parts = [];
+    if (m.reply_to_text) parts.push(`<div class="quote">${esc(m.reply_to_text)}</div>`);
+    parts.push(m.text
+      ? `<div class="text">${format(m.text, agent.channel)}</div>`
+      : `<div class="text empty">${m.attachments.length ? '' : 'no text recorded'}</div>`);
+    const p = m.link_preview;
+    if (p && (p.title || p.site)) {
+      parts.push(`<div class="preview">${p.site ? `<div class="site">${esc(p.site)}</div>` : ''}${p.title ? `<div class="ptitle">${esc(p.title)}</div>` : ''}${p.description ? `<div>${esc(p.description)}</div>` : ''}</div>`);
+    }
+    if (m.buttons && m.buttons.length) {
+      parts.push(`<div class="buttons">${m.buttons.flat().map(b => `<span title="${esc(b.kind || '')}">${esc(b.text)}</span>`).join('')}</div>`);
+    }
+    if (m.attachments.length) {
+      parts.push(`<div class="files">${m.attachments.map(a => a.url
+        ? `<a href="${esc(a.url)}">📎 ${esc(a.name)}</a>`
+        : `<span>📎 ${esc(a.name)} (not downloaded)</span>`).join('')}</div>`);
+    }
+
+    const meta = [`<span title="${esc(d(m.date).toString())}">${showDate ? dateTime(m.date) : time(m.date)}</span>`];
+    if (m.reply_seconds != null) meta.push(`<span class="latency" title="Time since your last message">replied in ${duration(m.reply_seconds)}</span>`);
+    if (m.reset) meta.push(`<span class="reset-tag" title="${esc(m.reset)}">part of a reset</span>`);
+    if (m.date_deleted || m.date_retracted) meta.push(`<span class="warn">deleted ${time(m.date_deleted || m.date_retracted)}</span>`);
+    const job = m.from_me && jobs.find(j => j.agent === agent.name && sentMatches(j, m));
+    if (job && job.state === 'running' && !job.stopping) meta.push(`<span class="live-tag">${job.kind === 'run' ? 'recording the run' : 'recording replies'}</span>`);
+    if (m.from_me) {
+      if (m.date_read) meta.push(`<span class="detail">read ${time(m.date_read)}</span>`);
+      else if (m.read) meta.push(`<span class="detail">read</span>`);
+      else if (m.date_delivered) meta.push(`<span class="detail">delivered ${time(m.date_delivered)}</span>`);
+      else meta.push(`<span class="detail">no read receipt</span>`);
+    }
+    if (m.versions > 1) {
+      const span = m.date_edited ? ` over ${duration(gap(m.date, m.date_edited))}` : '';
+      meta.push(`<span class="detail" title="Distinct versions of the text that were recorded">${m.versions} versions${span}</span>`);
+    } else if (m.date_edited) {
+      meta.push(`<span class="detail">edited ${time(m.date_edited)}</span>`);
+    }
+    if (m.rich) meta.push(`<span class="detail" title="A formatted message (Telegram rich message, Slack blocks), turned into plain text">rich message</span>`);
+    if (m.rich_media) meta.push(`<span class="detail">${m.rich_media} photo/file${m.rich_media === 1 ? '' : 's'} not downloaded</span>`);
+    if (m.decoded) meta.push(`<span class="detail" title="Text read from the raw rich response, which was recorded before the bridge decoded it">decoded from raw</span>`);
+    if (gap(m.date, m.recorded) > 120) meta.push(`<span class="detail" title="When the pipeline first saw it">recorded ${when(m.recorded)}</span>`);
+
+    const reactions = (m.reactions || []).map(r => r.count != null ? `${esc(r.emoji)} ×${r.count}` : `${esc(r.emoji)} by ${esc(r.by === 'agent' ? label(agent.name) : (r.by || '?'))}`);
+    const cls = ['msg', m.from_me ? 'me' : 'agent', (m.date_deleted || m.date_retracted) ? 'deleted' : ''].join(' ');
+    return `<div class="${cls}">
+      <div class="bubble">${parts.join('')}</div>
+      ${reactions.length ? `<div class="reactions">${reactions.join(' · ')}</div>` : ''}
+      <div class="meta">${meta.join('')}</div>
+    </div>`;
+  }
+
+  // The console matches each job to its message once it's recorded.
+  const sentMatches = (j, m) => j.sent_id != null && j.sent_id === m.id;
+
+  // Messages typed here that aren't in the recorded conversation yet: queued, being sent, or (dry run) never sent.
+  function pendingFor(agent) {
+    const recorded = agent.items.filter(i => i.type === 'message' && i.from_me);
+    return jobs.filter(j => j.agent === agent.name && j.kind !== 'sync'
+      && (ACTIVE.has(j.state) || (dryRun && j.state === 'done'))
+      && !recorded.some(m => sentMatches(j, m)));
+  }
+
+  function pendingHTML(j, agent) {
+    const status = j.state === 'queued' ? jobStatus(j) : !j.sent_at ? 'Sending…' : dryRun ? 'Dry run: not sent' : 'Sent; waiting for it to be recorded';
+    return `<div class="msg me pending">
+      <div class="bubble"><div class="text">${format(j.text, agent.channel)}</div></div>
+      <div class="meta"><span>${esc(status)}</span></div>
+    </div>`;
+  }
+
+  // "Typing…" from the last few seconds, as it happens.
+  function typingNow(agent) {
+    const last = agent.items[agent.items.length - 1];
+    if (!last || last.type !== 'typing' || gap(last.until, now()) > 20) return '';
+    const verb = last.action === 'typing' ? 'typing' : last.action.replace(/_/g, ' ');
+    return `<div class="typing now">${esc(label(agent.name))} is ${esc(verb)}…</div>`;
+  }
+
+  function renderThread(agent, force = false) {
+    const container = $('thread');
+    if (!agent) { container.innerHTML = ''; $('count').textContent = ''; return; }
+    const pending = pendingFor(agent);
+    const live = typingNow(agent);
+    const key = [version, agent.name, query, details, pending.map(j => j.id + j.state + (j.sent_at || '')).join(','), live].join('|');
+    if (!force && key === threadKey) return;
+    threadKey = key;
+    // Where the window shows the conversation's end, just above the send box.
+    const conversationEnd = () => $('panel').getBoundingClientRect().bottom + window.scrollY - window.innerHeight;
+    const nearBottom = window.scrollY >= conversationEnd() - 240;
+
+    const q = query.trim().toLowerCase();
+    const total = agent.items.filter(i => i.type === 'message').length;
+    const matching = agent.items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)));
+    const threadsShown = new Set(matching.map(m => m.thread));
+    const matched = new Set(matching);
+    const shown = agent.items.filter(i => i.type === 'message' ? matched.has(i)
+      : i.type === 'thread' ? threadsShown.has(i.number)
+      : !q && (i.type === 'run' || i.type === 'reset' || details));
+    const out = [];
+    let lastDay = null;
+    let thread = null;  // the Slack thread being shown, if any
+    for (const item of shown) {
+      if (thread && item.type !== 'message') {
+        out.push('</section>');
+        thread = null;
+      }
+      const inThread = thread && item.type === 'message';
+      if (!inThread && (!lastDay || !sameDay(lastDay, item.date))) {
+        out.push(`<div class="day"><span>${esc(day(item.date))}</span></div>`);
+        lastDay = item.date;
+      }
+      if (item.type === 'thread') {
+        out.push(`<section class="thread-group" aria-label="Thread ${item.number}">` + threadHTML(item, agent));
+        thread = item;
+      } else if (item.type === 'reset') {
+        out.push(resetHTML(item));
+      } else if (item.type === 'run') {
+        const what = [item.task, item.step].filter(Boolean).map(esc).join(' · ') || esc(item.name);
+        out.push(`<div class="run" title="${esc(item.name)}"><span>Run started ${time(item.date)}: <strong>${what}</strong>${item.cell ? ` (${esc(item.cell)})` : ''}</span></div>`);
+      } else if (item.type === 'typing') {
+        const span = gap(item.date, item.until);
+        const verb = item.action === 'typing' ? 'typing' : item.action.replace(/_/g, ' ');
+        out.push(`<div class="typing">${esc(label(agent.name))} ${esc(verb)}… ${time(item.date)}${span >= 1 ? ` for ${duration(span)}` : ''}</div>`);
+      } else {
+        out.push(messageHTML(item, agent, inThread && !sameDay(thread.date, item.date)));
+      }
+    }
+    if (thread) out.push('</section>');
+    if (!q) {
+      out.push(...pending.map(j => pendingHTML(j, agent)));
+      if (live && !pending.length) out.push(live);
+    }
+    const matches = shown.filter(i => i.type === 'message').length;
+    container.className = `thread${details ? ' show-details' : ''}`;
+    container.innerHTML = out.length ? out.join('') : `<div class="empty-state">${q ? 'No messages match.' : 'Nothing recorded yet. Say hello below.'}</div>`;
+    container.querySelectorAll('.text, .preview, .buttons, .files').forEach(el => highlight(el, q));
+    $('count').textContent = q ? `${matches} of ${total} messages` : plural(total, 'message');
+    if (nearBottom || force) window.scrollTo(0, Math.max(0, conversationEnd()));
+  }
+
+  // MARK: Composer
+
+  function chosen() {
+    const agent = current();
+    if (recipients) return recipients.filter(n => agentInfo(n));
+    return agent && agentInfo(agent.name) ? [agent.name] : [];
+  }
+
+  function renderComposer() {
+    const names = chosen();
+    setHTML($('recipients'), sendable.map(a =>
+      `<button type="button" class="recipient ch-${esc(a.channel)}" data-to="${esc(a.name)}" aria-pressed="${names.includes(a.name)}">${esc(label(a.name))}</button>`
+    ).join(' ') + (sendable.length > 1
+      ? ` <button type="button" class="recipient all" data-to="*">${names.length === sendable.length ? 'Only this tab' : 'All'}</button>` : ''));
+    document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    document.querySelectorAll('[data-mode-only]').forEach(el => { el.hidden = el.dataset.modeOnly !== mode; });
+
+    const text = $('text').value;
+    const task = $('task').value.trim();
+    const who = names.length === 1 ? label(names[0]) : plural(names.length, 'agent');
+    $('send').textContent = sending ? 'Sending…' : mode === 'run' ? `Start run for ${who}` : `Send to ${who}`;
+    $('send').disabled = sending || !names.length || !text.trim() || (mode === 'run' && !task);
+    $('text').placeholder = names.length === 1 ? `Message ${label(names[0])}` : names.length ? `Message ${names.map(label).join(', ')}` : 'Pick who to send to';
+
+    const lines = [];
+    const agent = current();
+    if (agent && !agentInfo(agent.name) && !recipients) {
+      lines.push(`${esc(label(agent.name))} has no handle in config/agents.yaml, so it can't be sent to. Pick someone above.`);
+    }
+    // A message that's only being listened to makes way for the next one; anything else is waited for.
+    for (const n of names) {
+      const ch = channelOf(n);
+      const ahead = laneJob(ch);
+      const queued = jobs.filter(j => j.channel === ch && j.state === 'queued').length;
+      if (ahead && ahead.kind === 'run') {
+        lines.push(`${esc(label(n))}: waits for ${esc(label(ahead.agent))}'s task run to finish. You can stop it on the right.`);
+      } else if (queued) {
+        lines.push(`${esc(label(n))}: waits behind ${plural(queued, 'job')} queued on ${esc(CHANNELS[ch])}.`);
+      }
+    }
+    const channels = new Set(names.map(channelOf));
+    if (names.length > 1 && channels.size < names.length) lines.push('Agents on the same channel get it one after the other.');
+    if (mode === 'run') {
+      const quiet = names.map(n => `${label(n)} ${duration(agentInfo(n).quiet_period_seconds)}`).join(', ');
+      lines.push(`Records until ${names.length > 1 ? 'each agent' : 'it'} has been quiet for ${quiet ? 'its quiet period (' + esc(quiet) + ')' : 'its quiet period'}, then writes <code>runs/…/</code>. Task, step and cell go in its run.json.`);
+    }
+    const intro = sendError ? `<span class="err">${esc(sendError)}</span>` :
+      dryRun ? 'Dry run: nothing is sent.' : `Sent exactly as written, as <code>bench ${mode === 'run' ? 'run' : 'send'}</code> would. <kbd>⌘</kbd> <kbd>↩</kbd> sends.`;
+    setHTML($('hint'), intro + (lines.length ? `<ul>${lines.map(l => `<li>${l}</li>`).join('')}</ul>` : ''));
+  }
+
+  async function api(path, body) {
+    const r = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'X-Console-Token': TOKEN, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+      cache: 'no-store',
+    });
+    let out = {};
+    try { out = await r.json(); } catch (e) {}
+    if (!r.ok) throw new Error(out.error || `the console answered ${r.status}`);
+    return out;
+  }
+
+  async function send() {
+    const names = chosen();
+    const text = $('text').value;
+    if (sending || !names.length || !text.trim()) return;
+    sending = true;
+    sendError = '';
+    renderComposer();
+    try {
+      await api('/api/send', mode === 'run'
+        ? { agents: names, text, mode, task: $('task').value, step: $('step').value, cell: $('cell').value }
+        : { agents: names, text, mode, listen: Number($('listen').value) });
+      $('text').value = '';
+      store.set('draft', '');
+    } catch (e) {
+      sendError = `Not sent: ${e.message}`;
+    } finally {
+      sending = false;
+      await poll();
+      renderComposer();
+    }
+  }
+
+  // MARK: Updates
+
+  function renderAll(forceThread = false) {
+    if (!data) return;
+    const agent = current();
+    renderTabs(agent);
+    renderHead(agent);
+    renderComposer();
+    renderJobs();
+    renderThread(agent, forceThread);  // last, so it scrolls to the end with everything else in place
+  }
+
+  function renderLive() {
+    const el = $('live');
+    el.className = 'live ' + (connected ? 'on' : connected === false ? 'off' : '');
+    $('live-text').textContent = connected ? 'Live' + (data && data.sources.length ? ` · recorded ${when(data.sources.map(s => s.last).filter(Boolean).sort().pop())}` : '')
+      : connected === false ? `Can't reach the console${lastOk ? ` since ${time(lastOk)}` : ''}. Is bench console still running?` : 'Connecting…';
+    const banner = [];
+    if (dryRun) banner.push('Dry run: messages typed here are shown but not sent to anyone. Start <code>uv run bench console</code> without <code>--dry-run</code> to send.');
+    if (watchError) banner.push(esc(watchError));
+    setHTML($('banner'), banner.join('<br>'));
+    $('banner').hidden = !banner.length;
+  }
+
+  async function poll() {
+    try {
+      const s = await api('/api/state' + (version != null ? `?since=${version}` : ''));
+      const first = !data;
+      if (s.snapshot) data = s.snapshot;
+      version = s.version;
+      jobs = s.jobs;
+      sendable = s.agents;
+      dryRun = s.dry_run;
+      watchError = s.error;
+      clockOffset = d(s.now) - Date.now();
+      connected = true;
+      lastOk = new Date().toISOString();
+      if (first) renderFooter();
+      renderAll(first);
+    } catch (e) {
+      connected = false;
+    }
+    renderLive();
+  }
+
+  function renderFooter() {
+    const sources = data.sources.map(s => `<li>${esc(CHANNELS[s.channel] || s.channel)}: <code>${esc(s.path)}</code></li>`).join('');
+    $('footer').innerHTML = `This page updates by itself while <code>uv run bench console</code> is running. Each message is sent by running
+      <code>bench send</code> (or <code>bench run</code> for a task run), and its prompt and output are kept in <code>data/console/</code>.
+      Telegram, Slack and Hark messages that arrive while nothing is recording show up after a Sync. Recorded from:
+      ${sources ? `<ul>${sources}</ul>` : ''}`;
+  }
+
+  // MARK: Events
+
+  $('tabs').addEventListener('click', e => {
+    const tab = e.target.closest('.tab');
+    if (!tab) return;
+    selected = tab.dataset.agent;
+    try { history.replaceState(null, '', '#' + encodeURIComponent(selected)); } catch (err) {}
+    if (recipients && recipients.length <= 1) recipients = null;  // a single pick follows the tab
+    if (resetFor && resetFor !== selected) closeResetForm();
+    renderAll(true);
+  });
+  window.addEventListener('hashchange', () => {
+    selected = decodeURIComponent(location.hash.slice(1));
+    renderAll(true);
+  });
+  // MARK: Recording a reset
+
+  let resetFor = null;  // the agent the open form is for
+
+  function openResetForm(agent) {
+    resetFor = agent.name;
+    $('rf-agent').textContent = label(agent.name);
+    const recent = agent.items.filter(i => i.type === 'message').sort((a, b) => d(b.date) - d(a.date)).slice(0, 15);
+    $('rf-after').innerHTML = recent.map(m => {
+      const what = m.service ? (NOTICES[m.service] || m.service) : (m.text || 'no text').replace(/\s+/g, ' ').slice(0, 60);
+      return `<option value="${esc(m.guid)}">Right after ${esc(when(m.date))} · ${esc(m.from_me ? 'You' : label(agent.name))}: ${esc(what)}</option>`;
+    }).join('') + '<option value="">Now</option>';
+    $('rf-err').textContent = '';
+    $('reset-form').hidden = false;
+    $('rf-how').focus();
+  }
+
+  function closeResetForm() {
+    resetFor = null;
+    $('reset-form').hidden = true;
+  }
+
+  $('rf-cancel').addEventListener('click', closeResetForm);
+  $('reset-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    if (!$('rf-how').value.trim()) { $('rf-err').textContent = 'Say what was done.'; return; }
+    try {
+      await api('/api/reset', { agent: resetFor, how: $('rf-how').value, method: $('rf-method').value,
+        after: $('rf-after').value || null, result: $('rf-result').value });
+      $('rf-how').value = $('rf-result').value = '';
+      closeResetForm();
+      await poll();
+    } catch (err) {
+      $('rf-err').textContent = `Not recorded: ${err.message}`;
+    }
+  });
+
+  $('head').addEventListener('click', async e => {
+    if (e.target.id === 'record-reset') return openResetForm(current());
+    if (e.target.id !== 'sync') return;
+    e.target.disabled = true;
+    try { await api('/api/sync', { agent: current().name }); } catch (err) { sendError = `Couldn't sync: ${err.message}`; }
+    await poll();
+  });
+  $('recipients').addEventListener('click', e => {
+    const b = e.target.closest('[data-to]');
+    if (!b) return;
+    const names = chosen();
+    if (b.dataset.to === '*') {
+      recipients = names.length === sendable.length ? null : sendable.map(a => a.name);
+    } else {
+      const n = b.dataset.to;
+      recipients = names.includes(n) ? names.filter(x => x !== n) : sendable.map(a => a.name).filter(x => x === n || names.includes(x));
+    }
+    sendError = '';
+    renderComposer();
+  });
+  document.querySelector('.seg').addEventListener('click', e => {
+    const b = e.target.closest('[data-mode]');
+    if (!b) return;
+    mode = b.dataset.mode;
+    store.set('mode', mode);
+    renderComposer();
+  });
+  $('composer').addEventListener('submit', e => { e.preventDefault(); send(); });
+  $('text').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
+  });
+  $('text').addEventListener('input', () => { sendError = ''; store.set('draft', $('text').value); renderComposer(); });
+  for (const id of ['task', 'step', 'cell']) {
+    $(id).value = store.get(id, '');
+    $(id).addEventListener('input', () => { store.set(id, $(id).value); renderComposer(); });
+  }
+  $('listen').value = store.get('listen', '300');
+  if (!$('listen').value) $('listen').value = '300';
+  $('listen').addEventListener('change', () => store.set('listen', $('listen').value));
+  $('text').value = store.get('draft', '');
+  $('q').addEventListener('input', e => { query = e.target.value; renderThread(current()); });
+  $('details').checked = details;
+  $('details').addEventListener('change', e => {
+    details = e.target.checked;
+    store.set('details', details ? '1' : '0');
+    renderThread(current(), false);
+  });
+  $('jobs').addEventListener('toggle', e => {
+    if (e.target.dataset && e.target.dataset.job) openLogs.set(e.target.dataset.job, e.target.open);
+  }, true);
+  $('jobs').addEventListener('click', async e => {
+    const b = e.target.closest('[data-stop]');
+    if (!b) return;
+    b.disabled = true;
+    try { await api('/api/stop', { job: b.dataset.stop }); } catch (err) { /* it finished meanwhile; the next poll shows it */ }
+    await poll();
+  });
+
+  poll();
+  setInterval(poll, POLL_MS);
+})();
+</script>
+</body>
+</html>

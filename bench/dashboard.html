@@ -24,6 +24,7 @@
   --imessage: #2f6fe0;
   --mark: #ffe17a;
   --danger: #b8402c;
+  --reset: #a25a00;
   --shadow: 0 1px 2px rgba(20, 20, 15, 0.06);
 }
 @media (prefers-color-scheme: dark) {
@@ -45,6 +46,7 @@
     --imessage: #5b92ff;
     --mark: #806b12;
     --danger: #ef7a62;
+    --reset: #f0b45e;
     --shadow: none;
   }
 }
@@ -66,6 +68,7 @@
   --imessage: #5b92ff;
   --mark: #806b12;
   --danger: #ef7a62;
+  --reset: #f0b45e;
   --shadow: none;
 }
 
@@ -174,6 +177,17 @@ header.top .as-of { color: var(--muted); font-size: 13px; }
 .detail { display: none; }
 .show-details .detail { display: inline; }
 .typing { font-size: 12.5px; color: var(--faint); margin: 4px 0 4px 4px; font-style: italic; }
+/* A context reset (bench/resets.py): everything below it came after the reset. */
+.reset { margin: 16px 0; padding: 9px 12px; border-left: 3px solid var(--reset); border-radius: 4px 10px 10px 4px;
+  background: color-mix(in srgb, var(--reset) 9%, transparent); font-size: 13.5px; }
+.reset-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
+.reset-mark { color: var(--reset); font-weight: 700; }
+.reset-meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.reset-how { margin-top: 2px; }
+.reset-result { margin-top: 3px; color: var(--muted); }
+.reset-result b { font-weight: 600; color: var(--text); }
+.meta .reset-tag { color: var(--reset); font-weight: 550; }
+.notice { text-align: center; margin: 10px 0; font-size: 12.5px; color: var(--muted); }
 mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
 
 .empty-state { padding: 48px 18px; text-align: center; color: var(--muted); }
@@ -240,6 +254,19 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
     });
   }
 
+  const RESET_METHODS = { asked: 'asked to forget', command: 'command', 'by hand': 'done by hand' };
+  const NOTICES = { history_clear: 'You cleared the chat history in Telegram' };
+
+  function resetHTML(r) {
+    const meta = [RESET_METHODS[r.method] || r.method, (r.approximate ? 'by ' : '') + time(r.date)];
+    if (r.source === 'detected') meta.push('found in what Telegram recorded');
+    return `<div class="reset" role="note" title="${esc(r.id)}${r.approximate ? ': the time isn\'t known exactly; this is the latest it can have been' : ''}">
+      <div class="reset-top"><span class="reset-mark">↺ Context reset</span><span class="reset-meta">${meta.map(esc).join(' · ')}</span></div>
+      <div class="reset-how">${esc(r.how)}</div>
+      ${r.result ? `<div class="reset-result"><b>Result:</b> ${esc(r.result)}</div>` : ''}
+    </div>`;
+  }
+
   const searchable = m => [m.text, m.link_preview && m.link_preview.title, m.link_preview && m.link_preview.url,
     ...(m.buttons || []).flat().map(b => b.text), ...(m.attachments || []).map(a => a.name)]
     .filter(Boolean).join('\n').toLowerCase();
@@ -299,6 +326,9 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
   }
 
   function messageHTML(m, agent, showDate = false) {
+    if (m.service) {  // a notice Telegram left in the chat, not a message
+      return `<div class="notice" title="${esc(d(m.date).toString())}">${esc(NOTICES[m.service] || m.service.replace(/_/g, ' '))} · ${showDate ? dateTime(m.date) : time(m.date)}</div>`;
+    }
     const parts = [];
     if (m.reply_to_text) parts.push(`<div class="quote">${esc(m.reply_to_text)}</div>`);
     parts.push(m.text
@@ -319,6 +349,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 
     const meta = [`<span title="${esc(d(m.date).toString())}">${showDate ? dateTime(m.date) : time(m.date)}</span>`];
     if (m.reply_seconds != null) meta.push(`<span class="latency" title="Time since your last message">replied in ${duration(m.reply_seconds)}</span>`);
+    if (m.reset) meta.push(`<span class="reset-tag" title="${esc(m.reset)}">part of a reset</span>`);
     if (m.date_deleted || m.date_retracted) meta.push(`<span class="warn">deleted ${time(m.date_deleted || m.date_retracted)}</span>`);
     if (m.from_me) {
       if (m.date_read) meta.push(`<span class="detail">read ${time(m.date_read)}</span>`);
@@ -363,6 +394,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
         <div class="stat"><div class="label">Median first reply</div><div class="value">${duration(s.median_reply_seconds)}</div></div>
         <div class="stat"><div class="label">First message</div><div class="value small">${s.first ? dateTime(s.first) : '—'}</div></div>
         <div class="stat"><div class="label">Last message</div><div class="value small">${s.last ? dateTime(s.last) : '—'}</div></div>
+        <div class="stat" title="${s.resets} context reset${s.resets === 1 ? '' : 's'} recorded"><div class="label">Last reset</div><div class="value small">${s.last_reset ? dateTime(s.last_reset) : 'none recorded'}</div></div>
       </div>
     </div>`;
     const toolbar = `<div class="toolbar">
@@ -379,7 +411,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
     const matched = new Set(matching);
     const shown = agent.items.filter(i => i.type === 'message' ? matched.has(i)
       : i.type === 'thread' ? threadsShown.has(i.number)
-      : !q && (i.type === 'run' || details));
+      : !q && (i.type === 'run' || i.type === 'reset' || details));
     const out = [];
     let lastDay = null;
     let thread = null;  // the Slack thread being shown, if any
@@ -396,6 +428,8 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
       if (item.type === 'thread') {
         out.push(`<section class="thread-group" aria-label="Thread ${item.number}">` + threadHTML(item, agent));
         thread = item;
+      } else if (item.type === 'reset') {
+        out.push(resetHTML(item));
       } else if (item.type === 'run') {
         const what = [item.task, item.step].filter(Boolean).map(esc).join(' · ') || esc(item.name);
         out.push(`<div class="run" title="${esc(item.name)}"><span>Run started ${time(item.date)}: <strong>${what}</strong>${item.cell ? ` (${esc(item.cell)})` : ''}</span></div>`);

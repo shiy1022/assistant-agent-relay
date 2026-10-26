@@ -10,7 +10,10 @@
     bench sync [AGENT]                    record whatever arrived or changed since last time
     bench inbox [--agent A] [--follow]    show what's been recorded
     bench export                          write data/conversations/<agent>.jsonl: each agent's messages, cleaned up
+    bench reset-log                       list every context reset, and where it took effect
+    bench reset-log AGENT --how TEXT      write down a reset you did (--method, --after MSG or --at TIME, --result)
     bench dashboard [--out PATH] [--open] write a web page of every recorded conversation
+    bench console [--open] [--dry-run]    the dashboard, live in your browser, with a box to send messages from
     bench telegram-login                  link this Mac to your Telegram account by QR code
     bench telegram-logout                 end that session and delete it
     bench whatsapp-install                build bench-whatsapp and install it in the background
@@ -268,6 +271,48 @@ def cmd_export(args: argparse.Namespace) -> None:
         print(f"Wrote {display(path)}")
 
 
+def cmd_reset_log(args: argparse.Namespace) -> None:
+    from bench import conversation, resets
+    if args.remove:
+        gone = resets.remove(args.remove)
+        print(f"Removed {gone['id']}: {gone['how']}")
+        return
+    everything = conversation.load()
+    if not args.agent:
+        lines = sorted((m for ms in everything.values() for m in ms if m["role"] == "reset"), key=conversation.order_key)
+        if not lines:
+            print("No resets written down yet. Write one down with: uv run bench reset-log AGENT --how \"what you did\"")
+        for m in lines:
+            r = m["reset"]
+            print(f"{local_time(m['sent_at'])}  {m['agent']:<9} ↺ {r['method']}{' (by this time)' if r['approximate'] else ''}: {m['text']}"
+                  + (f"\n{'':26}result: {r['result']}" if r["result"] else "") + f"\n{'':26}{m['id']}")
+        return
+    agent = get_agent(args.agent)
+    if not args.how:
+        raise ChannelError("say what was done, with --how")
+    mine = [m for m in everything.get(agent.name, []) if m["role"] != "reset"]
+
+    def message(ref: str) -> dict:
+        """A message of this agent's, by its id in data/conversations or just its last part."""
+        found = next((m for m in mine if ref in (m["id"], m["id"].rsplit(":", 1)[-1])), None)
+        if found is None:
+            raise ChannelError(f"no message {ref!r} of {agent.name}'s is recorded. Their ids are in data/conversations/{agent.name}.jsonl")
+        return found
+
+    messages = [message(ref)["id"] for ref in args.messages or []]
+    at = None
+    if args.after:
+        boundary = message(args.after)
+        at = datetime.fromisoformat(boundary["sent_at"])
+        messages.append(boundary["id"])
+    elif args.at:
+        at = datetime.fromisoformat(args.at)
+        at = at if at.tzinfo else at.astimezone()  # a time with no zone is this Mac's local time
+    r = resets.add(agent, how=args.how, method=args.method, at=at, messages=messages, result=args.result,
+                   approximate=args.approximate)
+    print(f"Recorded {r['id']}: {'by ' if r['approximate'] else ''}{local_time(r['at'])}, {r['how']}")
+
+
 def display(path: Path) -> str:
     try:
         return str(path.relative_to(Path.cwd()))
@@ -361,6 +406,11 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
     print(f"Wrote {path}")
     if args.open:
         subprocess.run(["open", str(path)])
+
+
+def cmd_console(args: argparse.Namespace) -> None:
+    from bench import console
+    console.serve(args.port, open_browser=args.open, dry_run=args.dry_run)
 
 
 def cmd_telegram_login(args: argparse.Namespace) -> None:
@@ -459,7 +509,7 @@ def cmd_reader_status(args: argparse.Namespace) -> None:
         print("".join(READER_LOG.read_text().splitlines(keepends=True)[-8:]), end="")
 
 
-RECORDING = {"send", "run", "listen", "sync", "hark-import"}  # commands after which data/conversations is written again
+RECORDING = {"send", "run", "listen", "sync", "hark-import", "reset-log"}  # commands after which data/conversations is written again
 
 
 def export_quietly() -> None:
@@ -511,10 +561,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--last", type=int, default=20, help="how many past events to show (default 20)")
     p.set_defaults(func=cmd_inbox)
     sub.add_parser("export").set_defaults(func=cmd_export)
+    p = sub.add_parser("reset-log", description="List context resets, or write one down. See bench/resets.py.")
+    p.add_argument("agent", nargs="?", help="the agent that was reset (leave out to list every reset)")
+    p.add_argument("--how", help="what was done, like \"Asked it to forget everything; it said done\"")
+    p.add_argument("--method", choices=("asked", "command", "by hand"), default="asked",
+                   help="asked it to forget (default), sent a command like /new, or did it by hand outside the chat")
+    when = p.add_mutually_exclusive_group()
+    when.add_argument("--after", metavar="MESSAGE", help="it took effect right after this message (its id, or the id's last part)")
+    when.add_argument("--at", metavar="TIME", help="it took effect at this time, like 2026-10-25T14:54 (this Mac's time), default now")
+    p.add_argument("--messages", nargs="+", metavar="MESSAGE", help="the messages that did it, like the request and the agent's answer")
+    p.add_argument("--result", help="what's known about whether it worked")
+    p.add_argument("--approximate", action="store_true", help="the time isn't known exactly; give the latest it can have been")
+    p.add_argument("--remove", metavar="ID", help="take a reset written down by mistake back out")
+    p.set_defaults(func=cmd_reset_log)
     p = sub.add_parser("dashboard")
     p.add_argument("--out", help="where to write it (default data/dashboard.html)")
     p.add_argument("--open", action="store_true", help="open it in your browser afterwards")
     p.set_defaults(func=cmd_dashboard)
+    p = sub.add_parser("console")
+    p.add_argument("--port", type=int, default=8787, help="the port on 127.0.0.1 to serve it on (default 8787)")
+    p.add_argument("--open", action="store_true", help="open it in your browser")
+    p.add_argument("--dry-run", action="store_true", help="show what would be sent, and send nothing")
+    p.set_defaults(func=cmd_console)
     sub.add_parser("telegram-login").set_defaults(func=cmd_telegram_login)
     sub.add_parser("telegram-logout").set_defaults(func=cmd_telegram_logout)
     sub.add_parser("whatsapp-install").set_defaults(func=cmd_whatsapp_install)
@@ -539,13 +607,15 @@ def main(argv: list[str] | None = None) -> int:
     from bench.channels.slack import SlackError
     from bench.channels.telegram import TelegramError
     from bench.channels.whatsapp import WhatsAppError
+    from bench.console import ConsoleError
     from bench.deliverables import DeliverableError
     from bench.imessage.send import SendError
+    from bench.resets import ResetError
     from bench.runs import RunError
     try:
         args.func(args)
-    except (ConfigError, ChannelError, DeliverableError, HarkError, RunError, SendError, SlackError, TelegramError,
-            WhatsAppError) as e:
+    except (ConfigError, ChannelError, ConsoleError, DeliverableError, HarkError, ResetError, RunError, SendError,
+            SlackError, TelegramError, WhatsAppError) as e:
         print(f"bench: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

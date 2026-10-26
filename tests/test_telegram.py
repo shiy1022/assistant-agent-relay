@@ -280,6 +280,22 @@ def test_pending_link_previews_keep_the_url(fake, dirs):
     assert events(dirs)[0]["link_preview"] == {"url": "https://wajo.ai/join"}
 
 
+def test_clearing_the_chat_is_recorded_from_telegrams_notice(fake, dirs):
+    # Clearing the chat on your phone leaves a service message, which bench.resets reads as a reset.
+    cleared = types.MessageService(id=2, peer_id=types.PeerUser(FO_ID), out=True, date=datetime.now(UTC),
+                                   action=types.MessageActionHistoryClear())
+    fake.history[FO_ID] += [message(1, "hi", out=True, minutes_ago=5), cleared]
+
+    async def go():
+        async with channel(fake, dirs) as tg:
+            await tg.sync()
+
+    run(go())
+    hi, notice = events(dirs)
+    assert "service" not in hi
+    assert (notice["service"], notice["is_from_me"], notice.get("text")) == ("history_clear", True, None)
+
+
 def test_deletions_only_for_messages_in_the_agent_chat(fake, dirs):
     fake.history[FO_ID].append(message(1, "oops"))
 

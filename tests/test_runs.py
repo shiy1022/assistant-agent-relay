@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from bench import cli, conversation, runs
+from bench import cli, conversation, resets, runs
 from bench.config import Agent
 from tests.test_dashboard import FO, tg, wa, write_jsonl
 
@@ -141,6 +141,27 @@ def test_rebuild_keeps_extra_fields_and_lists_deliverables(tmp_path, agents):
     assert info["timing"]["send_clicked"] == "2026-10-25T03:32:52.900Z"  # kept alongside what's computed
     assert info["timing"]["agent_messages"] == 2
     assert list(json.loads((run_dir / "run.json").read_text()))[-1] == "notes"  # standard keys first
+
+
+def test_run_json_says_what_came_before_the_prompt(tmp_path, agents):
+    first = runs.start(FO, "an earlier run", task="t", runs_dir=tmp_path / "runs", now=datetime(2026, 10, 25, 3, 0, tzinfo=UTC))
+    run_dir = runs.start(FO, PROMPT, task="Travel vF Golden", runs_dir=tmp_path / "runs", now=START)
+    info = runs.rebuild(run_dir, convos(tmp_path, wajo_events()))
+    assert info["context"] == {"last_reset": None, "messages_since_reset": 2, "runs_since_reset": 1}
+    assert "No context reset recorded before it, and 2 messages before it." in (run_dir / "transcript.md").read_text()
+
+    # Reset after the first run and the hello, before the prompt; the next day's reset doesn't count.
+    resets.add(FO, how="Asked Fo to forget everything.", method="asked", at=datetime(2026, 10, 25, 3, 23, 10, tzinfo=UTC))
+    resets.add(FO, how="Another, later.", method="command", at=datetime(2026, 10, 26, tzinfo=UTC))
+    info = runs.rebuild(run_dir, convos(tmp_path, wajo_events()))
+    assert info["context"] == {
+        "last_reset": {"id": "reset:wajo:20261025T032310Z", "at": "2026-10-25T03:23:10.000Z",
+                       "how": "Asked Fo to forget everything.", "method": "asked", "result": None,
+                       "approximate": False, "source": "recorded"},
+        "messages_since_reset": 1, "runs_since_reset": 0}  # Fo's "hey!" came after it
+    assert "Last context reset before it: " in (run_dir / "transcript.md").read_text()
+    assert list(json.loads((run_dir / "run.json").read_text()))[:len(runs.STANDARD)] == list(runs.STANDARD)
+    assert first.exists()
 
 
 def test_the_prompt_is_found_even_if_the_channel_reformatted_it(tmp_path, agents):

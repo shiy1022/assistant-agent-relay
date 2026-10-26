@@ -9,7 +9,8 @@ Every run is a folder runs/<YYYYmmdd-HHMMSS>-<task and step>-<agent>/ (local tim
     run.json          what was run, and when (below)
     prompt.txt        the prompt, exactly as sent
     transcript.jsonl  every message from the prompt to the end of the run, one per
-                      line, in the same form as data/conversations (see bench.conversation)
+                      line, in the same form as data/conversations (see bench.conversation),
+                      with any context reset made during it
     transcript.md     the same, for people
     deliverables/     what the agent made outside the chat, like a page it linked to;
                       bench run saves those itself (bench.deliverables)
@@ -33,6 +34,13 @@ grader needs) is kept when the folder is rebuilt:
                     a page bench run saved also has saved_at
     timing          prompt_sent, first_reply, last_change and the seconds between them,
                     agent_messages, streamed_edits, reply_chars
+    context         what the agent had been through before the prompt:
+                      last_reset            the latest context reset before it (bench.resets):
+                                            id, at, how, method, result, approximate, source;
+                                            null if none was recorded
+                      messages_since_reset  messages with the agent between that reset and the
+                                            prompt (all of them before it, if there was no reset)
+                      runs_since_reset      the agent's other runs that started in between
 """
 
 import json
@@ -50,7 +58,7 @@ SCHEMA = 1
 SLICE_SECONDS = 10      # how long bench run records between checks for a finished reply
 CLOCK_SKEW = timedelta(seconds=120)  # Telegram and WhatsApp round send times down to the second
 STANDARD = ("schema", "run", "task", "step", "cell", "agent", "channel", "handle", "started_at", "ended_at",
-            "finished", "prompt_message", "messages", "links", "deliverables", "timing")
+            "finished", "prompt_message", "messages", "links", "deliverables", "timing", "context")
 
 
 class RunError(Exception):
@@ -155,6 +163,31 @@ def timing(prompt: dict, replies: list[dict]) -> dict:
     return out
 
 
+def context(info: dict, everything: list[dict], prompt: dict, runs_dir: Path) -> dict:
+    """What the agent had been through before the run's prompt: its last reset, and what came after it."""
+    before = everything[:everything.index(prompt)]
+    reset = next((m for m in reversed(before) if m["role"] == "reset"), None)
+    since = before[before.index(reset) + 1:] if reset else before
+    started = conversation.parse(info["started_at"])
+    after = conversation.parse(reset["sent_at"]) if reset else None
+    runs_between = 0
+    for path in runs_dir.glob("*/run.json"):
+        try:
+            other = json.loads(path.read_text())
+        except (OSError, ValueError):
+            continue
+        if path.parent.name == info["run"] or other.get("agent") != info["agent"] or not other.get("started_at"):
+            continue
+        if conversation.parse(other["started_at"]) < started and (after is None or conversation.parse(other["started_at"]) > after):
+            runs_between += 1
+    last = None
+    if reset:
+        last = {"id": reset["id"], "at": reset["sent_at"], "how": reset["text"]} | \
+            {k: reset["reset"][k] for k in ("method", "result", "approximate", "source")}
+    return {"last_reset": last, "messages_since_reset": sum(m["role"] != "reset" for m in since),
+            "runs_since_reset": runs_between}
+
+
 def local(iso_time: str | None) -> str:
     return conversation.parse(iso_time).astimezone().strftime("%Y-%m-%d %H:%M:%S %Z") if iso_time else "--"
 
@@ -165,7 +198,17 @@ def markdown(info: dict, messages: list[dict]) -> str:
              f"Run {info['run']}. Started {local(info.get('started_at'))}; "
              + (f"ended {local(info['ended_at'])} ({info['finished']})." if info.get("ended_at") else "still going."),
              ""]
+    if (ctx := info.get("context")) is not None:
+        r = ctx["last_reset"]
+        lines += [(f"Last context reset before it: {'by ' if r['approximate'] else ''}{local(r['at'])}, {r['how']} "
+                   f"Then {ctx['messages_since_reset']} messages and {ctx['runs_since_reset']} runs before this one."
+                   if r else f"No context reset recorded before it, and {ctx['messages_since_reset']} messages before it."), ""]
     for m in messages:
+        if m["role"] == "reset":  # see bench.resets
+            r = m["reset"]
+            lines += [f"## Context reset ({r['method']}) · {'by ' if r['approximate'] else ''}{local(m['sent_at'])}", "",
+                      m["text"], ""] + ([f"Result: {r['result']}", ""] if r["result"] else [])
+            continue
         who = "You" if m["role"] == "user" else info["agent"]
         head = [f"sent {local(m['sent_at'])}"]
         if m["edited_at"]:
@@ -212,11 +255,14 @@ def rebuild(run_dir: Path, conversations: dict[str, list[dict]] | None = None) -
         "schema": SCHEMA,
         "run": run_dir.name,
         "started_at": info.get("started_at") or prompt["sent_at"],
+    }
+    info |= {
         "prompt_message": prompt["id"],
         "messages": [m["id"] for m in messages],
         "links": list(dict.fromkeys(link for m in replies for link in m["links"])),
         "deliverables": [{"path": f, "source": None} | (known.get(f) or {}) for f in files if not f.endswith(".DS_Store")],
         "timing": (info.get("timing") or {}) | timing(prompt, replies),
+        "context": context(info, everything, prompt, run_dir.parent),
     }
     conversation.write_jsonl(run_dir / "transcript.jsonl", messages)
     (run_dir / "transcript.md").write_text(markdown(info, messages))

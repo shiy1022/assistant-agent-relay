@@ -13,7 +13,7 @@ Every line has all of these keys (null or [] when they don't apply):
     id            unique across channels, like "telegram:8599638402:12"
     agent         the agent's name in config/agents.yaml
     channel       telegram, whatsapp, slack, hark or imessage
-    role          "user" (sent by you) or "agent"
+    role          "user" (sent by you), "agent", or "reset" (below)
     text          the message's text, "" if it has none (see attachments and buttons)
     sent_at       when it was sent, ISO 8601 in UTC
     edited_at     when it was last edited
@@ -29,6 +29,11 @@ Every line has all of these keys (null or [] when they don't apply):
     read_at       when it was read, where the channel says
     rich          true if it had content beyond text (cards, pages, rich layouts)
     recorded_at   when agent-runner first recorded it
+
+A context reset (bench.resets) is a line too, where it took effect, with role
+"reset", its id (like "reset:muse:20261025T215402Z"), what was done as its
+text, when as sent_at, and one more key, "reset": its method, result, approximate,
+source, and the ids of the messages that did it. Its other keys are null or [].
 """
 
 import base64
@@ -39,6 +44,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from bench import resets
 from bench.config import CHANNELS, ROOT
 from bench.inbox import Inbox, inbox_path
 
@@ -134,10 +140,21 @@ def message(event: dict, versions: int, recorded_at: str, inbox_dir: Path) -> di
     }
 
 
+def reset_line(r: dict) -> dict:
+    """A reset, as a line of the conversation."""
+    return {"id": r["id"], "agent": r["agent"], "channel": r["channel"], "role": "reset", "text": r["how"],
+            "sent_at": r["at"], "edited_at": None, "deleted_at": None, "versions": 1, "reply_to": None, "thread": None,
+            "attachments": [], "buttons": [], "links": [], "reactions": [], "delivered_at": None, "read_at": None,
+            "rich": False, "recorded_at": r["recorded_at"] or r["at"],
+            "reset": {k: r[k] for k in ("method", "result", "approximate", "source", "messages")}}
+
+
 def order_key(m: dict) -> tuple:
     # Telegram and WhatsApp times are to the second; Telegram's IDs count up, so they break ties.
+    # A reset goes after the messages of its second: it's usually timed by the agent's "done".
     message_id = m["id"].rsplit(":", 1)[-1]
-    return parse(m["sent_at"]), parse(m["recorded_at"]), int(message_id) if message_id.isdigit() else 0, m["id"]
+    return (parse(m["sent_at"]), m["role"] == "reset", parse(m["recorded_at"]),
+            int(message_id) if message_id.isdigit() else 0, m["id"])
 
 
 def messages(events: list[dict], inbox_dir: Path) -> list[dict]:
@@ -158,14 +175,18 @@ def messages(events: list[dict], inbox_dir: Path) -> list[dict]:
     return sorted(out, key=order_key)
 
 
-def load(inboxes: dict[str, Path] | None = None) -> dict[str, list[dict]]:
-    """Each agent's messages, by agent name, from every channel's inbox."""
+def load(inboxes: dict[str, Path] | None = None, resets_file: Path | None = None) -> dict[str, list[dict]]:
+    """Each agent's messages and resets, by agent name, from every channel's inbox and data/resets.jsonl."""
     inboxes = inboxes or {c: inbox_path(c) for c in CHANNELS}
     out: dict[str, list[dict]] = {}
+    everything: list[dict] = []
     for path in inboxes.values():
         events = Inbox(path).poll()
+        everything += events
         for name in {e["agent"] for e in events if e.get("agent")}:
             out.setdefault(name, []).extend(messages([e for e in events if e.get("agent") == name], path.parent))
+    for name, rs in resets.by_agent(everything, resets_file).items():
+        out.setdefault(name, []).extend(reset_line(r) for r in rs)
     return {name: sorted(ms, key=order_key) for name, ms in sorted(out.items()) if ms}
 
 

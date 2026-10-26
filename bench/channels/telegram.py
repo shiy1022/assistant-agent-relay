@@ -192,6 +192,12 @@ def rich_text(node) -> str:
     return "\n".join(parts)
 
 
+def service(msg) -> str | None:
+    """What a service message is a notice of, like "history_clear" when the chat was cleared. None for a message."""
+    action = getattr(msg, "action", None)
+    return snake(type(action).__name__.removeprefix("MessageAction")) if action else None
+
+
 def message_event(msg, agent: Agent, attachments: list[dict] | None = None) -> dict:
     """One Telegram message in the shared event format, without kind and emitted_at."""
     rich = getattr(msg, "rich_message", None)
@@ -204,6 +210,7 @@ def message_event(msg, agent: Agent, attachments: list[dict] | None = None) -> d
         "message_id": msg.id,
         "is_from_me": bool(msg.out),
         "text": msg.message or rich_text(rich) or None,
+        "service": service(msg),  # a notice Telegram put in the chat, not a message anyone sent (bench.resets)
         "rich": True if rich else None,
         "rich_media": rich_media or None,  # photos or files inside a rich message; not downloaded yet
         "date": iso(msg.date),

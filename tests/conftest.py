@@ -11,6 +11,13 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "tests" / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def no_real_resets(tmp_path_factory, monkeypatch):
+    """Keeps every test away from the resets written down in data/resets.jsonl."""
+    from bench import resets
+    monkeypatch.setattr(resets, "RESETS_FILE", tmp_path_factory.mktemp("resets") / "resets.jsonl")
+
+
 def build_reader(out: Path, *, test: bool) -> Path:
     cmd = [str(ROOT / "reader" / "build.sh"), "--config", str(FIXTURES / "agents.yaml"), "--out", str(out)]
     if test:

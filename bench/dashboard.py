@@ -2,7 +2,8 @@
 
 It reads the channel inboxes as they are and never connects to Telegram or
 WhatsApp, so it shows only what was already recorded. Telegram messages that
-arrived while nothing was running show up after `bench sync`.
+arrived while nothing was running show up after `bench sync`. Context resets
+(bench.resets) show where they took effect.
 """
 
 import json
@@ -11,6 +12,7 @@ import statistics
 from datetime import UTC, datetime
 from pathlib import Path
 
+from bench import resets
 from bench.config import CHANNELS, ROOT, Agent, load_agents
 from bench.conversation import unified_text
 from bench.inbox import Inbox, inbox_path
@@ -22,7 +24,7 @@ TYPING_GAP_SECONDS = 15  # typing events closer together than this are one stret
 
 # Message fields the page shows as recorded.
 KEPT = ("date_delivered", "date_read", "date_played", "date_edited", "date_deleted", "date_retracted",
-        "read", "rich", "rich_media", "reactions", "buttons", "link_preview")
+        "read", "rich", "rich_media", "reactions", "buttons", "link_preview", "service")
 
 
 def parse(iso: str) -> datetime:
@@ -56,6 +58,7 @@ def message_items(events: list[dict], inbox: Path) -> list[dict]:
         item = {
             "type": "message",
             "id": event.get("message_id"),
+            "guid": guid,
             "from_me": bool(event.get("is_from_me")),
             "text": text,
             "decoded": bool(text) and not event.get("text"),  # read from the raw rich response here
@@ -104,15 +107,27 @@ def run_items(runs_dir: Path) -> list[dict]:
     return items
 
 
-def timeline(messages: list[dict], typing: list[dict], runs: list[dict]) -> list[dict]:
+def reset_items(agent_resets: list[dict], messages: list[dict]) -> list[dict]:
+    """Each reset (bench.resets) where it took effect, and on each message that did it, which reset it was part of."""
+    by_guid = {m["guid"]: m for m in messages}
+    items = []
+    for r in agent_resets:
+        for guid in r["messages"] or []:
+            if guid in by_guid:
+                by_guid[guid]["reset"] = r["id"]
+        items.append({"type": "reset", "date": r["at"]} | {k: r[k] for k in resets.KEYS if k not in ("at", "agent", "channel")})
+    return items
+
+
+def timeline(messages: list[dict], typing: list[dict], runs: list[dict], agent_resets: list[dict] = ()) -> list[dict]:
     """Everything in order, with the reply time on each first reply after one of your messages."""
-    order = {"run": 0, "message": 1, "typing": 1}
-    items = sorted(messages + typing + runs,
+    order = {"run": 0, "message": 1, "typing": 1, "reset": 2}  # a reset goes after the messages of its second
+    items = sorted(messages + typing + runs + reset_items(list(agent_resets), messages),
                    key=lambda i: (parse(i["date"]), order[i["type"]], i.get("recorded") or "", str(i.get("id") or "").rjust(32)))
     by_id = {m["id"]: m for m in messages if m.get("id") is not None}
     previous = None
     for item in items:
-        if item["type"] != "message":
+        if item["type"] != "message" or item.get("service"):  # a notice Telegram left isn't a message to answer
             continue
         if not item["from_me"] and previous and previous["from_me"]:
             item["reply_seconds"] = max(0.0, (parse(item["date"]) - parse(previous["date"])).total_seconds())
@@ -157,14 +172,17 @@ def by_thread(items: list[dict]) -> list[dict]:
 
 
 def stats(items: list[dict]) -> dict:
-    messages = [i for i in items if i["type"] == "message"]
+    messages = [i for i in items if i["type"] == "message" and not i.get("service")]
     replies = [i["reply_seconds"] for i in messages if "reply_seconds" in i]
+    reset_dates = [i["date"] for i in items if i["type"] == "reset"]
     return {
         "sent": sum(m["from_me"] for m in messages),
         "received": sum(not m["from_me"] for m in messages),
         "first": min((m["date"] for m in messages), key=parse, default=None),  # Slack's are grouped by thread, not by time
         "last": max((m["date"] for m in messages), key=parse, default=None),
         "median_reply_seconds": statistics.median(replies) if replies else None,
+        "resets": len(reset_dates),
+        "last_reset": max(reset_dates, key=parse, default=None),
     }
 
 
@@ -176,18 +194,20 @@ def display_path(path: Path) -> str:
 
 
 def snapshot(agents: dict[str, Agent] | None = None, inboxes: dict[str, Path] | None = None,
-             runs_dir: Path = RUNS_DIR, now: datetime | None = None) -> dict:
+             runs_dir: Path = RUNS_DIR, now: datetime | None = None, resets_file: Path | None = None) -> dict:
     """Every agent's recorded conversation, as the page's data."""
     agents = load_agents() if agents is None else agents
     inboxes = inboxes or {c: inbox_path(c) for c in CHANNELS}
     events = {channel: Inbox(path).poll() for channel, path in inboxes.items()}
     runs = run_items(runs_dir)
+    all_resets = resets.by_agent([e for evs in events.values() for e in evs], resets_file)
 
     # Agents in config order, then any that were recorded but aren't listed any more.
     seen = {(e["agent"], channel) for channel, evs in events.items() for e in evs if e.get("agent")}
+    seen |= {(r["agent"], r["channel"]) for rs in all_resets.values() for r in rs}
     entries = {(a.name, a.channel): a.handle for a in agents.values()}
     for name, channel in sorted(seen - set(entries)):
-        handle = next((e.get("handle") for e in events[channel] if e.get("agent") == name and e.get("handle")), "")
+        handle = next((e.get("handle") for e in events.get(channel, []) if e.get("agent") == name and e.get("handle")), "")
         entries[name, channel] = handle
 
     out = []
@@ -196,7 +216,8 @@ def snapshot(agents: dict[str, Agent] | None = None, inboxes: dict[str, Path] | 
             continue
         mine = [e for e in events[channel] if e.get("agent") == name]
         items = timeline(message_items(mine, inboxes[channel]), typing_items(mine),
-                         [r for r in runs if r["agent"] == name])
+                         [r for r in runs if r["agent"] == name],
+                         [r for r in all_resets.get(name, []) if r["channel"] == channel])
         if channel == "slack":
             items = by_thread(items)
         out.append({"name": name, "channel": channel, "handle": handle, "items": items, "stats": stats(items)})

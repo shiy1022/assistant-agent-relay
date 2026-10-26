@@ -67,7 +67,8 @@ def test_each_message_appears_once_as_last_recorded(tmp_path):
     assert hey["recorded"] == "2026-10-25T03:15:45.000Z"  # first seen, not last updated
     assert hey["reply_seconds"] == 16
     assert agent(snap, "wajo")["stats"] == {
-        "sent": 1, "received": 1, "first": hi["date"], "last": hey["date"], "median_reply_seconds": 16}
+        "sent": 1, "received": 1, "first": hi["date"], "last": hey["date"], "median_reply_seconds": 16,
+        "resets": 0, "last_reset": None}
 
 
 def test_streamed_reply_counts_its_versions(tmp_path):
