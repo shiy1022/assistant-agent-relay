@@ -44,6 +44,8 @@ No agent has a reset that's passed a full check yet. What's known so far is in [
 
 Run each step on its day, in the same conversation as the steps before it. Follow-ups a tester writes, like those that start `TESTERS:` or depend on the last reply, are sent the same way, with the `--cell` of the row they belong to.
 
+Sending from your phone instead works for every agent, as long as it's in the channel the runner records. Messages sent on wajo.ai, muse.ai or in the ChatGPT app aren't recorded. See [Sending from your phone or the agent's website](other-devices.md).
+
 ## Steps with no prompt
 
 A step that says `NO PROMPT` checks whether the agent acts on its own, like sending a digest or flagging a conflict. Record whatever arrives:
