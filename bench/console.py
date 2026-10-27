@@ -18,6 +18,10 @@ a channel whose last message has gone out and is only being listened to, that
 listening is stopped so the new message goes out now. A task run is never cut
 short: the new message waits for it.
 
+Whenever an agent's reply with a link is recorded, the page behind the link
+is saved for grading, by bench.snapshots: into the agent's latest run, as it
+looked then. That's off in --dry-run.
+
 Only the page it serves can use it. The address it prints carries a token,
 every request has to show it, and requests addressed to any other host name
 are refused, so another website open in your browser can't read or send.
@@ -41,7 +45,7 @@ from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from bench import conversation, dashboard, resets
+from bench import conversation, dashboard, resets, snapshots
 from bench.config import CHANNELS, PRIVATE_DIR, ROOT, Agent, load_agents
 from bench.inbox import inbox_path
 
@@ -57,6 +61,7 @@ POLL_SECONDS = 1.5         # how often it looks for newly recorded messages
 SENT_SKEW = timedelta(seconds=5)  # a sent message can be stamped a little before its job started
 STOP_GRACE = 30            # seconds running jobs get to write their records when the console stops
 LOG_LINES = 200            # output lines kept in memory per job (all of it is in output.log)
+SNAPSHOT_SETTLE = 5        # seconds to let a reply's records land before saving its links' pages
 COOKIE = "agent_console_token"
 
 # Stands in for bench in --dry-run: says what it would have run, and sends nothing.
@@ -129,7 +134,7 @@ class Console:
 
     def __init__(self, agents: dict[str, Agent] | None = None, *, jobs_dir: Path = JOBS_DIR,
                  python: str = sys.executable, dry_run: bool = False, inboxes: dict[str, Path] | None = None,
-                 runs_dir: Path = dashboard.RUNS_DIR, resets_file: Path | None = None):
+                 runs_dir: Path = dashboard.RUNS_DIR, resets_file: Path | None = None, snapshot_links: bool | None = None):
         self.all_agents = load_agents() if agents is None else agents
         self.agents = {n: a for n, a in self.all_agents.items() if a.channel in SENDABLE}
         self.jobs_dir = jobs_dir
@@ -148,8 +153,14 @@ class Console:
         self.signature: tuple | None = None
         self.version = 0
         self.watch_error: str | None = None
+        # Saving linked pages: on for the real inboxes, unless it's a dry run
+        self.snapshot_links = (self.live and not dry_run) if snapshot_links is None else snapshot_links
+        self.snapshot_wanted = threading.Event()
+        self.snapshot_error: str | None = None
         self.threads = [threading.Thread(target=self._lane, args=(c,), name=f"lane-{c}", daemon=True) for c in SENDABLE]
         self.threads.append(threading.Thread(target=self._watch, name="watch", daemon=True))
+        if self.snapshot_links:
+            self.threads.append(threading.Thread(target=self._snapshots, name="snapshots", daemon=True))
 
     def start(self) -> None:
         self.refresh()
@@ -419,6 +430,7 @@ class Console:
                                     {"path": urllib.parse.unquote(urllib.parse.urlsplit(a["url"]).path)})
                 with self.lock:
                     self.snap, self.signature, self.version = snap, signature, self.version + 1
+                self.snapshot_wanted.set()  # something new was recorded: maybe a reply with a link
             with self.lock:
                 self._match_sent()
                 self._preempt()
@@ -446,6 +458,21 @@ class Console:
             except Exception as e:  # shown on the page; the next look may work
                 self.watch_error = f"couldn't read what's recorded: {e}"
             time.sleep(POLL_SECONDS)
+
+    def _snapshots(self) -> None:
+        """Saves the pages behind links in agents' replies (bench.snapshots), a pass after each new recording."""
+        while not self.closing:
+            if not self.snapshot_wanted.wait(timeout=30):
+                continue
+            time.sleep(SNAPSHOT_SETTLE)  # a reply often lands as several records
+            self.snapshot_wanted.clear()
+            try:
+                snapshots.save_new(convos=conversation.load(self.inboxes, self.resets_file), runs_dir=self.runs_dir,
+                                   on_event=lambda e: print(snapshots.describe(e), flush=True))
+                self.snapshot_error = None
+            except Exception as e:  # the next pass tries again
+                self.snapshot_error = f"couldn't save linked pages: {e}"
+                print(self.snapshot_error, flush=True)
 
     def attachment_roots(self) -> list[Path]:
         return [p.parent.resolve() for p in self.inboxes.values()]
@@ -603,6 +630,7 @@ def serve(port: int = PORT, *, open_browser: bool = False, dry_run: bool = False
     url = f"http://127.0.0.1:{server.server_address[1]}/?t={token}"
     print(f"The console is at {url}\n"
           + ("Dry run: messages typed into it aren't sent anywhere.\n" if dry_run else "")
+          + ("It saves the page behind every link in an agent's reply into that agent's run.\n" if console.snapshot_links else "")
           + "Leave this running while you use it. Ctrl-C stops it.", flush=True)
     if open_browser:
         subprocess.run(["open", url])

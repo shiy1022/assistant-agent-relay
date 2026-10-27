@@ -187,6 +187,32 @@ def test_a_job_is_sent_once_its_message_is_recorded(tmp_path):
     assert again.sent_id == 4
 
 
+def test_a_reply_with_a_link_gets_its_page_saved(tmp_path, monkeypatch):
+    inbox = tmp_path / "tg" / "messages.jsonl"
+    inbox.parent.mkdir()
+    passes = []
+    monkeypatch.setattr(console, "SNAPSHOT_SETTLE", 0)
+    monkeypatch.setattr(console.snapshots, "save_new", lambda **kw: passes.append(kw["convos"]) or [])
+    assert not Console(AGENTS, jobs_dir=tmp_path / "jobs", inboxes={"telegram": inbox}).snapshot_links  # off unless asked
+    c = Console(AGENTS, jobs_dir=tmp_path / "jobs", inboxes={"telegram": inbox}, runs_dir=tmp_path / "runs",
+                snapshot_links=True)
+    c.start()
+    try:
+        wait_for(lambda: len(passes) == 1)  # one pass when it starts, for what came while it was off
+        inbox.write_text(json.dumps({"kind": "new", "emitted_at": "2026-10-27T03:56:15.000Z", "channel": "telegram",
+                                     "agent": "wajo", "guid": "telegram:1:9", "message_id": 9, "is_from_me": False,
+                                     "date": "2026-10-27T03:56:15.000Z", "attachments": [],
+                                     "text": "pay here https://app.gojinko.com/checkout?t=abc"}) + "\n")
+        wait_for(lambda: len(passes) == 2)
+        assert passes[-1]["wajo"][0]["links"] == ["https://app.gojinko.com/checkout?t=abc"]
+    finally:
+        c.close(grace=1)
+
+
+def test_a_dry_run_saves_no_pages(tmp_path):
+    assert not Console(AGENTS, jobs_dir=tmp_path / "jobs", dry_run=True).snapshot_links
+
+
 # MARK: The web server
 
 @pytest.fixture

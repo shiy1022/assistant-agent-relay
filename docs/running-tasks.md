@@ -58,7 +58,25 @@ Telegram, Slack and Hark keep the whole chat, so syncing once after the step is 
 
 ## Score it
 
-Read the run's `transcript.md`, and anything the agent made in `deliverables/`, against the success criteria. Put the scores in the sheet, in that agent's columns. To see every recorded conversation at once:
+Read the run's `transcript.md`, and anything the agent made in `deliverables/`, against the success criteria. Put the scores in the sheet, in that agent's columns.
+
+**Linked pages are saved for you.** While `bench console` runs, each time an agent's reply with a link is recorded, the page behind the link is saved into that agent's run, as it looked then:
+
+- **Where it's saved:** in `deliverables/`, as `<site>-<hash>.mhtml`, `.png`, `.txt`, `.html` and `.json` (the link, HTTP status and title), all listed in `run.json`.
+- **To look at a page, open its `.mhtml` in Chrome**, or look at the `.png`. The `.mhtml` is the page as it looked, styles and images included, and its scripts don't run.
+- **Don't open the `.html`.** It's the page source, there for searching. Opened from disk, the site's scripts run again and often replace the page with an error (Expedia, Europcar), and the styles are missing.
+- **Embedded frames:** a page that shows its content in a big frame, as Wajo's plans do, gets that frame saved as a page of its own too (`…-frame1.*`), and the frame's text goes in the main `.txt`.
+- **Saving a page again:** `uv run bench snapshot --again <link>`, say after an agent updated its page.
+- **Older snapshots:** `uv run bench snapshot --mhtml` adds a `.mhtml` to pages saved before the format existed, rebuilt from the saved page with the site's current styles.
+- **How:** a fresh headless Chrome, signed in to nothing, loads the page and clicks nothing.
+- **What's left alone:**
+  - links that need your sign-in (Slack, Hark, Meta AI, Google accounts, Gmail, Calendar, Wajo's account pages, and the dot's ChatGPT browser handoffs)
+  - links that look like actions: confirm, approve, unsubscribe, sign in, invite, join or referral
+- **Bot checks** are saved as they show, never got around.
+- **Without the console,** the same pass runs with `uv run bench snapshot` (`--retry` tries failed pages again).
+- **The record:** every link handled is in `data/snapshots/index.jsonl`.
+
+To see every recorded conversation at once:
 
 ```bash
 uv run bench dashboard --open

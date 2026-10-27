@@ -6,6 +6,7 @@
     bench run AGENT --file PATH --task T  send a task prompt, record until the reply is finished, write runs/<run>/
     bench run-rebuild [RUN_DIR ...]       write runs' transcripts again from what's recorded now (default: every run)
     bench run-save [RUN_DIR ...]          save the pages agents linked to as their answers into runs' deliverables/
+    bench snapshot [AGENT] [--hours H]    save what every page agents linked to shows, into their runs (the console does it by itself)
     bench listen [AGENT] [--seconds S]    catch up, then record live until Ctrl-C (or S seconds)
     bench sync [AGENT]                    record whatever arrived or changed since last time
     bench inbox [--agent A] [--follow]    show what's been recorded
@@ -475,6 +476,18 @@ def cmd_slack_status(args: argparse.Namespace) -> None:
     print(status(list(load_agents().values())))
 
 
+def cmd_snapshot(args: argparse.Namespace) -> None:
+    from bench import snapshots
+    if args.mhtml:
+        print(f"Added {snapshots.add_mhtml(on_event=print)} .mhtml files.")
+        return
+    done = snapshots.save_new(agents=[get_agent(args.agent).name] if args.agent else None, hours=args.hours,
+                              retry=args.retry, again=tuple(args.again or ()),
+                              on_event=lambda e: print(snapshots.describe(e), flush=True))
+    if not done:
+        print(f"No new links from agents in the last {args.hours:g} hours.")
+
+
 def cmd_hark_login(args: argparse.Namespace) -> None:
     from bench.channels.hark import sign_in
     print(sign_in())
@@ -595,6 +608,13 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("whatsapp-unlink").set_defaults(func=cmd_whatsapp_unlink)
     sub.add_parser("slack-login").set_defaults(func=cmd_slack_login)
     sub.add_parser("slack-status").set_defaults(func=cmd_slack_status)
+    p = sub.add_parser("snapshot")
+    p.add_argument("agent", nargs="?")
+    p.add_argument("--hours", type=float, default=72, help="how far back to look for links (default 72)")
+    p.add_argument("--retry", action="store_true", help="try again the pages that couldn't be saved")
+    p.add_argument("--mhtml", action="store_true", help="add the viewable .mhtml to pages saved before it existed")
+    p.add_argument("--again", action="append", metavar="LINK", help="save this link's page again, even though it's saved")
+    p.set_defaults(func=cmd_snapshot)
     sub.add_parser("hark-login").set_defaults(func=cmd_hark_login)
     sub.add_parser("hark-status").set_defaults(func=cmd_hark_status)
     p = sub.add_parser("hark-import")
