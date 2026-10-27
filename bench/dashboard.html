@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Conversations</title>
+<title>agenttest</title>
 <!-- Template for `bench dashboard` (bench/dashboard.py), which fills in the recorded data. -->
 <style>
 :root {
@@ -205,7 +205,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 <body>
 <div class="wrap">
   <header class="top">
-    <h1>Agent conversations</h1>
+    <h1>agenttest</h1>
     <div class="as-of" id="as-of"></div>
   </header>
   <div class="tabs" role="tablist" id="tabs"></div>
@@ -222,6 +222,8 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 
   let details = false;
   try { details = localStorage.getItem('dashboard.details') === '1'; } catch (e) {}
+  let benchmarkOnly = true;  // hide what you did with the agent outside the tasks
+  try { benchmarkOnly = localStorage.getItem('dashboard.benchmark') !== '0'; } catch (e) {}
   let query = '';
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -399,6 +401,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
     </div>`;
     const toolbar = `<div class="toolbar">
       <input type="search" id="q" placeholder="Search messages" value="${esc(query)}" aria-label="Search messages">
+      <label><input type="checkbox" id="benchmark" ${benchmarkOnly ? 'checked' : ''}> Benchmark only</label>
       <label><input type="checkbox" id="details" ${details ? 'checked' : ''}> Receipts, edits and typing</label>
       <span class="count" id="count"></span>
     </div>`;
@@ -406,7 +409,7 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
 
     const q = query.trim().toLowerCase();
     const total = agent.items.filter(i => i.type === 'message').length;
-    const matching = agent.items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)));
+    const matching = agent.items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)) && (!benchmarkOnly || i.benchmark !== false));
     const threadsShown = new Set(matching.map(m => m.thread));
     const matched = new Set(matching);
     const shown = agent.items.filter(i => i.type === 'message' ? matched.has(i)
@@ -455,6 +458,11 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
       const input = document.getElementById('q');
       input.focus();
       input.setSelectionRange(pos, pos);
+    });
+    document.getElementById('benchmark').addEventListener('change', e => {
+      benchmarkOnly = e.target.checked;
+      try { localStorage.setItem('dashboard.benchmark', benchmarkOnly ? '1' : '0'); } catch (err) {}
+      render();
     });
     document.getElementById('details').addEventListener('change', e => {
       details = e.target.checked;

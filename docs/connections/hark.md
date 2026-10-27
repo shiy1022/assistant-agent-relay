@@ -58,7 +58,7 @@ Do [Before you start](README.md#before-you-start) first. You need a Google accou
    uv run bench send hark "ping" --listen 120
    ```
 
-   It fills Hark's message box, checks the text, and clicks Send. While Hark thinks or browses, that's recorded as a "working" or "browsing" stretch.
+   It fills Hark's message box, checks the text, and clicks Send. While Hark thinks or browses, that's recorded as a "working" or "browsing" stretch. When Hark builds a Page (a website), it's recorded as a message, `Page: <name>` with its `hark.com/site/<project>` link, and a copy of it, one HTML file with its images and fonts embedded, is saved under `data/inbox/hark/attachments/`, since the link only opens signed in to Hark.
 
 ## Check it
 

@@ -6,12 +6,15 @@ from datetime import UTC, datetime
 import pytest
 
 from bench import cli, conversation, deliverables, runs
+from bench.config import Agent
 from tests.test_dashboard import FO, tg, write_jsonl
 from tests.test_runs import PROMPT, START, Clock, convos
 
 PLAN = "https://wajo.ai/d/b6ffe336-89df-4375-b32d-dae17b96cdfc"
 PLAN_FRAME = "https://wajo.ai/api/d/b6ffe336-89df-4375-b32d-dae17b96cdfc"
 REFERRAL = "https://wajo.ai/?ref=yueheng"
+SITE = "https://hark.com/site/dd7d20a1-bca3-42b5-a0d0-eda7c0f80714"
+HARK = Agent("hark", "hark.com", 180, 1800, channel="hark")
 PAGE = """<!doctype html><html><head><title>Sedona, MLK Weekend 2027 · Wajo</title>
 <style>body { color: red }</style><script>alert("hi")</script></head>
 <body><main><h1>Sedona,
@@ -63,6 +66,43 @@ def test_only_the_agents_own_pages_are_deliverables():
 
 def test_the_same_page_linked_twice_is_one_deliverable():
     assert deliverables.pages("wajo", [PLAN, PLAN + "/", PLAN + "#days"]) == [(PLAN, PLAN_FRAME, "wajo-b6ffe336")]
+
+
+def test_hark_pages_are_recognised_but_never_fetched():
+    assert deliverables.pages("hark", [SITE, SITE + "#days", "https://hark.com/chat", PLAN]) == [(SITE, None, "hark-dd7d20a1")]
+    assert deliverables.pages("wajo", [SITE]) == []
+
+
+def a_transcript(run_dir, *messages):
+    conversation.write_jsonl(run_dir / "transcript.jsonl",
+                             [{"id": f"hark:{i}", "agent": "hark", "role": "agent", "text": "", "links": [], "attachments": []} | m
+                              for i, m in enumerate(messages)])
+
+
+def test_a_hark_page_is_copied_from_what_the_channel_saved(tmp_path):
+    copy = tmp_path / "inbox" / "hark" / "attachments" / "m1" / "Sedona MLK Weekend 2027.html"
+    copy.parent.mkdir(parents=True)
+    copy.write_text(PAGE)
+    run_dir = a_run(tmp_path, [SITE], agent=HARK)
+    a_transcript(run_dir, {"text": f"Page: Sedona MLK Weekend 2027\n{SITE}", "links": [SITE],
+                           "attachments": [{"name": copy.name, "mime_type": "text/html", "path": str(copy)}]})
+    fetch = FakeFetch()
+    saved, unsaved = deliverables.save(run_dir, fetch=fetch, now=datetime(2026, 10, 25, 22, 20, tzinfo=UTC))
+    assert fetch.asked == [] and unsaved == []
+    assert [d["path"] for d in saved] == ["deliverables/hark-dd7d20a1.html", "deliverables/hark-dd7d20a1.txt"]
+    assert (run_dir / "deliverables" / "hark-dd7d20a1.html").read_text() == PAGE
+    assert (run_dir / "deliverables" / "hark-dd7d20a1.txt").read_text().startswith("Sedona, MLK Weekend 2027 · Wajo\n")
+    assert all(d["source"] == SITE for d in saved)
+
+
+def test_a_hark_page_without_a_saved_copy_is_listed_as_unsaved(tmp_path):
+    run_dir = a_run(tmp_path, [SITE], agent=HARK)
+    a_transcript(run_dir, {"text": SITE, "links": [SITE], "attachments": [{"name": "x.html", "mime_type": "text/html"}]})
+    fetch = FakeFetch()
+    saved, unsaved = deliverables.save(run_dir, fetch=fetch)
+    assert (saved, fetch.asked) == ([], [])
+    assert [u["source"] for u in unsaved] == [SITE] and "bench sync hark" in unsaved[0]["error"]
+    assert runs.read_info(run_dir)["unsaved_deliverables"] == unsaved
 
 
 # MARK: Saving them
@@ -127,6 +167,53 @@ def test_rebuild_keeps_where_each_page_came_from_and_when(tmp_path, agents):
                 conversations=convos(tmp_path, events))
     saved, _ = deliverables.save(run_dir, fetch=FakeFetch(), now=datetime(2026, 10, 25, 3, 40, tzinfo=UTC))
     assert runs.rebuild(run_dir, convos(tmp_path, events))["deliverables"] == saved
+
+
+# MARK: A page with its files inside
+
+FONT_CSS = "@font-face{font-family:'Geist';src:url(https://fonts.gstatic.com/s/geist/v1/a.woff2) format('woff2')}"
+LIVE = ('<html><head><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist&amp;display=swap"/></head>'
+        '<body><img class="hero" src="data:image/jpeg;base64,/9j/4AAQ" alt="hero"/>'
+        '<img src="https://cf.bstatic.com/hotel/1.webp?k=abc&amp;o=" alt="El Portal"/>'
+        '<a href="https://www.booking.com/hotel/us/el-portal-sedona.html">Book</a></body></html>')
+
+
+class FakeFiles:
+    def __init__(self, fail=()):
+        self.asked, self.fail = [], set(fail)
+
+    def __call__(self, url):
+        self.asked.append(url)
+        if url in self.fail:
+            raise deliverables.DeliverableError(f"{url} answered HTTP 404 Not Found")
+        if url.startswith("https://fonts.googleapis.com/"):
+            return FONT_CSS.encode(), "text/css"
+        if url.endswith(".woff2"):
+            return b"WOFF2", "font/woff2"
+        return b"RIFF", "image/webp"
+
+
+def test_freeze_embeds_the_pages_images_and_fonts_and_leaves_links_alone():
+    files = FakeFiles()
+    frozen, missing = deliverables.freeze(LIVE, fetch=files)
+    assert missing == []
+    assert files.asked == ["https://cf.bstatic.com/hotel/1.webp?k=abc&o=",  # as the browser would ask, unescaped
+                           "https://fonts.googleapis.com/css2?family=Geist&display=swap",
+                           "https://fonts.gstatic.com/s/geist/v1/a.woff2"]
+    assert '<img src="data:image/webp;base64,UklGRg==" alt="El Portal"/>' in frozen
+    assert '<img class="hero" src="data:image/jpeg;base64,/9j/4AAQ" alt="hero"/>' in frozen  # already inside
+    assert "<style>@font-face{font-family:'Geist';src:url(data:font/woff2;base64,V09GRjI=) format('woff2')}</style>" in frozen
+    assert "fonts.googleapis.com" not in frozen
+    assert 'href="https://www.booking.com/hotel/us/el-portal-sedona.html"' in frozen
+
+
+def test_freeze_keeps_what_it_could_not_fetch_and_says_so():
+    files = FakeFiles(fail={"https://cf.bstatic.com/hotel/1.webp?k=abc&o=", "https://fonts.gstatic.com/s/geist/v1/a.woff2"})
+    frozen, missing = deliverables.freeze(LIVE, fetch=files)
+    assert 'src="https://cf.bstatic.com/hotel/1.webp?k=abc&amp;o="' in frozen
+    assert "url(https://fonts.gstatic.com/s/geist/v1/a.woff2)" in frozen
+    assert missing == ["https://cf.bstatic.com/hotel/1.webp?k=abc&o= answered HTTP 404 Not Found",
+                       "https://fonts.gstatic.com/s/geist/v1/a.woff2 answered HTTP 404 Not Found"]
 
 
 # MARK: The text version

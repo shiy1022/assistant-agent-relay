@@ -98,6 +98,8 @@ Then `uv run bench send hark --file prompt.txt --listen 600` sends a prompt and 
 
 **How it works:** [bench/channels/hark.py](bench/channels/hark.py) fills Hark's message box, checks the text, and clicks Send. It never clicks the box itself, because Hark covers the empty box with a tappable suggested prompt. Replies are read from the JSON hark.com's own page loads, so each message has Hark's ID and server time. While Hark works or browses, that's recorded as a "working" or "browsing" stretch, like typing. Buttons on Hark's messages are recorded, never pressed. `hark-status` also shows Hark's own token meter.
 
+A Page Hark builds (the website behind "Your Sedona Page is ready") is recorded as a message of its own: `Page: <name>` with its `hark.com/site/<project>` link, which opens in the dedicated Chrome, or any browser signed in to Hark. Since the link needs Hark's sign-in, the channel also saves a copy of the page as that message's attachment, under `data/inbox/hark/attachments/`: one HTML file with the page's images and fonts embedded, so it opens anywhere, offline, as Hark showed it. `bench run` copies it into the run's `deliverables/`.
+
 `uv run bench hark-import runs/<folder>` records a Hark run made before this channel existed, with the times it was observed. Import before the first sync, which would otherwise record those messages with the time it syncs.
 
 ## The console
@@ -115,6 +117,8 @@ Leave it running while you use it. Ctrl-C stops it. Only this Mac can reach it, 
 - **Task run** runs `bench run` with the task, step and cell, and writes `runs/…/` as usual. A run is never cut short: messages for its channel wait for it. Stop ends it as Ctrl-C would.
 - **Sync** records what arrived while nothing was recording, as `bench sync` does.
 - **Record a reset** writes down a context reset you did, right after the message where it took effect, as `bench reset-log` does (below).
+- **Benchmark only** (on by default, in the toolbar) hides what you did with an agent outside the tasks: a message sent without a run, and the agent's replies in the half hour after it. Runs, their messages, and anything the agent sends on its own stay visible. Everything is still recorded underneath; untick it to see it all. (The same toggle is on `bench dashboard`.)
+- **Late replies show up by themselves.** Every 60 seconds the console runs `bench sync` for each agent whose channel is idle (not WhatsApp, which is recorded all the time), so a reply that lands after a message's listening ended is recorded without pressing Sync. A channel with a message or run going is left alone. `--auto-sync 0` turns it off, `--auto-sync 30` makes it faster. Each agent's automatic syncs share one `data/console/autosync-<agent>/` folder.
 
 Each message is sent by running the same bench command you'd type, so the checks, locks and records are the same. Each job's prompt and output are kept in `data/console/<job>/`. If a send fails or you stop it partway, check the conversation before sending again: the message may have gone out anyway.
 
@@ -130,7 +134,7 @@ uv run bench run wajo --file prompt.txt --task "Travel vF Golden" --step "DAY 1 
 
 This sends the prompt and records until the agent has answered and then gone quiet for its `quiet_period_seconds`, or until `max_wait_seconds` (`--quiet` and `--max-wait` override them). It works the same on every channel. Then it writes the run's folder. Ctrl-C stops early and still writes the transcript.
 
-Last, it saves the pages the agent linked to as its answer into the folder's `deliverables/`, so the answer is in the run and not just a link to it. Each page is saved as it was served (`.html`) and as text with each link's address (`.txt`). Only links on a per-agent allowlist are fetched, `PAGES` in [bench/deliverables.py](bench/deliverables.py). So far that's Wajo's plans, `wajo.ai/d/<id>`. Other links an agent sends, like referral or invite links, are never opened. If a page can't be saved, the run says so and lists it in `run.json` under `unsaved_deliverables`. To try again, or to save the pages for a run made before this existed:
+Last, it saves the pages the agent linked to as its answer into the folder's `deliverables/`, so the answer is in the run and not just a link to it. Each page is saved as it was served (`.html`) and as text with each link's address (`.txt`). Only links on a per-agent allowlist are fetched, `PAGES` in [bench/deliverables.py](bench/deliverables.py). So far that's Wajo's plans, `wajo.ai/d/<id>`, and Hark's Pages, `hark.com/site/<id>`, which are never fetched from here: they need Hark's sign-in, so the copy the Hark channel saved is used (above). Other links an agent sends, like referral or invite links, are never opened. If a page can't be saved, the run says so and lists it in `run.json` under `unsaved_deliverables`. To try again, or to save the pages for a run made before this existed:
 
 ```bash
 uv run bench run-save runs/<folder>

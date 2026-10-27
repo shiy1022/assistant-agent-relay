@@ -9,6 +9,7 @@ from playwright.sync_api import TimeoutError as PlaywrightTimeout
 from bench.channels import hark as hark_module
 from bench.channels.hark import CHAT_URL, FETCH_JS, HarkChannel, HarkError, HarkWeb, Selectors, status, type_and_send
 from bench.config import Agent, ConfigError, normalize_handle
+from bench.deliverables import freeze as deliverables_freeze
 
 HARK = Agent("hark", "hark.com", 180, 1800, channel="hark")
 USER = {"id": "u-me", "email": "me@example.com", "name": "Me"}
@@ -33,6 +34,7 @@ class FakeSite:
         self.windows, self.asks = {}, {}
         self.box, self.sent, self.calls = "", [], []
         self.shows_sent = True  # whether a sent message shows up in the thread
+        self.files = {}         # what /api/files/… paths answer; a HarkError to fail
 
     def add(self, *messages, thread=MAIN) -> list[dict]:
         self.threads[thread] += messages
@@ -63,6 +65,15 @@ class FakeSite:
     def meter(self):
         return {"dailyUsed": 62822, "dailyLimit": 8000000, "poolUsed": 100613, "poolLimit": 40000000,
                 "poolResetsAt": "2026-11-01T00:00:00Z"}
+
+    def text(self, path):
+        self.calls.append(("text", path))
+        answer = self.files.get(path)
+        if isinstance(answer, Exception):
+            raise answer
+        if answer is None:
+            raise hark_module.HarkNetworkError(f"hark.com answered {path} with HTTP 404")
+        return answer
 
     def draft(self):
         return self.box
@@ -117,6 +128,21 @@ def test_first_sync_records_the_whole_main_thread_and_nothing_else(site, dirs):
                                                                   "conversation_id": MAIN}
 
 
+def test_a_rich_cards_caption_is_recorded_with_its_text(site, dirs):
+    # Hark puts the sentence under a table or order card in presentation.<kind>.ornament, not in content.
+    table = {"kind": "table", "title": "Hotels", "table": {"columns": ["Hotel"], "rows": [["Four Seasons"]],
+                                                           "ornament": "I'd go with the Four Seasons."}}
+    site.add(msg("user", "hotels?"),
+             msg(content="| Hotel |\n| --- |\n| Four Seasons |", presentation=table, source="send_bubble"),
+             msg(content="Pay at pickup.", presentation={"kind": "order_summary", "order_summary": {"ornament": "Pay at pickup."}}),
+             msg(content="Plain.", presentation={"kind": "text"}))
+    sync(site, dirs)
+    texts = [e["text"] for e in events(dirs)]
+    assert texts[1] == "| Hotel |\n| --- |\n| Four Seasons |\n\nI'd go with the Four Seasons."
+    assert texts[2] == "Pay at pickup."  # a caption already in the text isn't repeated
+    assert texts[3] == "Plain."
+
+
 def test_another_account_is_refused_before_anything_is_read(site, dirs):
     sync(site, dirs)
     site.user = {"id": "u-someone-else", "email": "other@example.com"}
@@ -149,6 +175,71 @@ def test_a_streamed_reply_is_recorded_as_it_grows(site, dirs):
     got = events(dirs)
     assert [(e["kind"], e["text"], e.get("streaming")) for e in got] == [
         ("new", "Sedona in", True), ("update", "Sedona in January is red rock.", None)]
+
+
+PAGE_HTML = "<!DOCTYPE html><html><head><title>Sedona MLK Weekend 2027</title></head><body><h1>Sedona</h1></body></html>"
+DOWNLOAD = "/api/files/conv-main/artifact?key=sessions%2Fconv-main%2Fartifacts%2F978650e9-29a%2Fwebsite%2Findex.html"
+
+
+def page_card(**fields) -> dict:
+    """Hark's record for a Page it built: no text, a website_coding_agent tool call with the site's files."""
+    call = {"dispatchId": "tu_XFXIS6MCL4PF42LMYKSBKJH7R5", "toolName": "website_coding_agent",
+            "input": {"project_name": "Sedona MLK Weekend 2027"}, "status": "completed",
+            "result": {"project_id": "dd7d20a1-bca3-42b5-a0d0-eda7c0f80714", "project_name": "Sedona MLK Weekend 2027"},
+            "updatedAt": 1792966568480, "dispatchedAt": 1792966567453,
+            "artifactKeys": [{"path": "website/index.html", "download_url": DOWNLOAD,
+                              "s3_key": "sessions/conv-main/artifacts/978650e9-29a/website/index.html"}]}
+    return msg(content="", toolCalls=[call], entryKind="card", **fields)
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    """Saving a Page embeds its images and fonts; nothing in these tests has any, and nothing may be fetched."""
+    def refuse(url):
+        raise AssertionError(f"tried to fetch {url}")
+    monkeypatch.setattr(hark_module, "freeze", lambda html: deliverables_freeze(html, fetch=refuse))
+
+
+def test_a_page_hark_built_is_recorded_with_its_link_and_a_saved_copy(site, dirs):
+    site.files[DOWNLOAD] = PAGE_HTML
+    site.add(msg("user", "Plan Sedona"), page_card(), msg(content="Your Sedona Page is ready."))
+    sync(site, dirs)
+    prompt, page, ready = events(dirs)
+    assert page["kind"] == "new" and page["hark_kind"] == "page" and page["rich"] is True
+    assert page["text"] == "Page: Sedona MLK Weekend 2027\nhttps://hark.com/site/dd7d20a1-bca3-42b5-a0d0-eda7c0f80714"
+    assert page["pages"] == [{"project_id": "dd7d20a1-bca3-42b5-a0d0-eda7c0f80714", "name": "Sedona MLK Weekend 2027",
+                              "url": "https://hark.com/site/dd7d20a1-bca3-42b5-a0d0-eda7c0f80714", "download": DOWNLOAD,
+                              "built_at": "2026-10-25T22:16:08.480Z"}]
+    [copy] = page["attachments"]
+    assert copy == {"name": "Sedona MLK Weekend 2027.html", "mime_type": "text/html", "bytes": len(PAGE_HTML),
+                    "path": f"attachments/{page['message_id']}/Sedona MLK Weekend 2027.html"}
+    assert (dirs.inbox.parent / copy["path"]).read_text() == PAGE_HTML
+    assert ready["text"] == "Your Sedona Page is ready."
+    # The next sync reads nothing again and writes nothing new
+    with channel(site, dirs) as h:
+        assert h.sync() == 0
+    assert [c for c in site.calls if c[0] == "text"] == [("text", DOWNLOAD)]
+
+
+def test_a_page_that_could_not_be_saved_is_recorded_and_saved_by_a_later_sync(site, dirs):
+    site.add(page_card())
+    with channel(site, dirs) as h:
+        h.sync()
+        [page] = events(dirs)
+        assert page["attachments"] == [{"name": "Sedona MLK Weekend 2027.html", "mime_type": "text/html"}]  # no path yet
+        assert "https://hark.com/site/dd7d20a1" in page["text"]
+        site.files[DOWNLOAD] = PAGE_HTML
+        assert h.sync() == 1
+    page = events(dirs)[-1]
+    assert page["kind"] == "update" and page["attachments"][0]["path"].endswith("Sedona MLK Weekend 2027.html")
+
+
+def test_a_page_still_being_built_is_work_not_a_message(site, dirs):
+    card = page_card(jobStatus="running", isStreaming=True)
+    card["toolCalls"][0] = {**card["toolCalls"][0], "status": "running", "result": None, "artifactKeys": []}
+    site.add(card)
+    sync(site, dirs)
+    assert [(e["kind"], e["action"]) for e in events(dirs)] == [("typing", "working")]
 
 
 def test_work_records_show_as_working_at_most_every_ten_seconds(site, dirs):
@@ -450,3 +541,41 @@ def test_hark_handles(raw):
 def test_hark_handle_must_be_hark_com():
     with pytest.raises(ConfigError, match="hark.com"):
         normalize_handle("hark.ai", "hark")
+
+
+def test_a_secure_screen_is_recorded_in_words_with_its_button_and_no_values():
+    # What Hark sends when it needs a sign-in or a card: a request with a screen, not a question.
+    ask = {"id": "a35a", "at": 1793136462503, "status": "waiting_for_input", "request": {
+        "requestId": "uir_1", "prompt": "Booking.com", "displayHint": "secure_screen", "screen": {
+            "state": "awaiting_input", "header": {"title": "Login", "icon_url": "https://icons.example/booking.ico"},
+            "components": [
+                {"type": "instructions", "text": "Enter your Booking.com credentials and we'll save them to your encrypted vault."},
+                {"type": "text_input", "id": "username", "label": "Email", "placeholder": "user@domain.com", "autocomplete": "username"},
+                {"type": "text_input", "id": "password", "label": "Password", "autocomplete": "current-password", "secret": True},
+                {"type": "choice", "label": "Google", "provider": "google", "screen": {"components": [{"type": "text_input", "label": "Email or phone"}]}},
+                {"type": "choice", "label": "Apple", "provider": "apple"}],
+            "primary_action": {"id": "submit", "label": "Login", "kind": "submit"}}}}
+    agent = SimpleNamespace(name="hark", handle="hark.com")
+    event = hark_module.ask_event("a35a", ask, agent)
+    assert event["text"] == ("Action required: Booking.com · Login\n"
+                             "Enter your Booking.com credentials and we'll save them to your encrypted vault.\n"
+                             "Fields: Email, Password\nOr continue with: Google, Apple\nButton: Login\n"
+                             "(Hark's secure screen; recorded, nothing entered)")
+    assert event["buttons"] == [[{"text": "Sign in to Booking.com", "kind": "secure_screen"}]]
+    assert event["hark_kind"] == "secure_screen" and event["date"] == hark_module.ms_time(1793136462503)
+    assert "autocomplete" not in event["text"] and "{" not in event["text"]
+
+    card = {"request": {"prompt": "Hark Wallet", "displayHint": "secure_screen", "screen": {
+        "header": {"title": "Add a card"}, "components": [{"type": "text_input", "label": "Card number", "secret": True}],
+        "primary_action": {"label": "Save card"}}}}
+    event = hark_module.ask_event("c1", card, agent)
+    assert event["text"].startswith("Action required: Hark Wallet · Add a card\nFields: Card number\nButton: Save card")
+    assert event["buttons"] == [[{"text": "Add a card", "kind": "secure_screen"}]]
+
+
+def test_a_closed_ask_is_recorded_as_closed_not_as_json():
+    agent = SimpleNamespace(name="hark", handle="hark.com")
+    event = hark_module.ask_event("a35a", {"id": "a35a825c", "at": 1793136462503}, agent)
+    assert event["text"] == "(Hark closed this request)" and event["hark_kind"] == "ask_closed" and "buttons" not in event
+    event = hark_module.ask_event("a35a", {"id": "a35a825c", "at": 1793136462503, "status": "resolved"}, agent)
+    assert event["text"] == "(Hark closed this request: resolved)"

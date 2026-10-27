@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Agent Console</title>
+<title>agenttest</title>
 <!-- Page for `bench console` (bench/console.py), which serves it with its token filled in.
      The conversation view follows bench/dashboard.html; keep the two looking alike. -->
 <style>
@@ -168,6 +168,9 @@ header.top h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -0
 .day { text-align: center; margin: 18px 0 10px; }
 .day span { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); padding: 3px 10px; border-radius: 999px; }
 .run { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; color: var(--muted); font-size: 12.5px; }
+.older { display: flex; align-items: center; gap: 12px; justify-content: center; margin: 8px 0 16px; color: var(--muted, #888); font-size: 13px; }
+.older button { font: inherit; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border, #444); background: transparent; color: inherit; cursor: pointer; }
+.older button:hover { border-color: var(--accent, #7c8cff); color: var(--text, #eee); }
 .run::before, .run::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
 .run strong { color: var(--text); font-weight: 600; }
 .thread-group { margin: 14px 0 18px; padding-left: 12px; border-left: 2px solid color-mix(in srgb, var(--ch) 40%, transparent); }
@@ -319,7 +322,7 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
 <body>
 <div class="wrap">
   <header class="top">
-    <h1>Agent console</h1>
+    <h1>agenttest</h1>
     <div class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></div>
   </header>
   <div class="banner" id="banner" hidden></div>
@@ -348,6 +351,7 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
       </form>
       <div class="toolbar">
         <input type="search" id="q" placeholder="Search messages" aria-label="Search messages">
+        <label><input type="checkbox" id="benchmark"> Benchmark only</label>
         <label><input type="checkbox" id="details"> Receipts, edits and typing</label>
         <span class="count" id="count"></span>
       </div>
@@ -413,6 +417,7 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
   let lastOk = null;
   let watchError = null;
   let details = store.get('details', '0') === '1';
+  let benchmarkOnly = store.get('benchmark', '1') === '1';  // hide what you did with the agent outside the tasks
   let query = '';
   let mode = store.get('mode', 'message') === 'run' ? 'run' : 'message';
   let recipients = null;  // names picked in "To", or null to follow the selected tab
@@ -486,6 +491,25 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
 
   const RESET_METHODS = { asked: 'asked to forget', command: 'command', 'by hand': 'done by hand' };
   const NOTICES = { history_clear: 'You cleared the chat history in Telegram' };
+  const RECENT = 20;          // messages shown per conversation until you ask for older ones
+  const OLDER_STEP = 50;      // how many more each click shows
+  const older = {};           // agent name → extra messages to show beyond RECENT
+
+  // Keeps only the newest `limit` messages of `items`, with the run/reset dividers among them and the
+  // thread header a kept message belongs to. Returns [kept, hiddenMessageCount].
+  function recent(items, limit) {
+    const total = items.filter(i => i.type === 'message').length;
+    if (total <= limit) return [items, 0];
+    let seen = 0, cut = items.length;
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].type === 'message' && ++seen === limit) { cut = i; break; }
+    }
+    for (let i = cut - 1; i >= 0; i--) {       // a message inside a Slack thread keeps its header
+      if (items[i].type === 'thread') { cut = i; break; }
+      if (items[i].type !== 'message') break;
+    }
+    return [items.slice(cut), total - limit];
+  }
 
   function resetHTML(r) {
     const meta = [RESET_METHODS[r.method] || r.method, (r.approximate ? 'by ' : '') + time(r.date)];
@@ -702,12 +726,12 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     return `<div class="typing now">${esc(label(agent.name))} is ${esc(verb)}…</div>`;
   }
 
-  function renderThread(agent, force = false) {
+  function renderThread(agent, force = false, keepPlace = false) {
     const container = $('thread');
     if (!agent) { container.innerHTML = ''; $('count').textContent = ''; return; }
     const pending = pendingFor(agent);
     const live = typingNow(agent);
-    const key = [version, agent.name, query, details, pending.map(j => j.id + j.state + (j.sent_at || '')).join(','), live].join('|');
+    const key = [version, agent.name, query, details, benchmarkOnly, older[agent.name] || 0, pending.map(j => j.id + j.state + (j.sent_at || '')).join(','), live].join('|');
     if (!force && key === threadKey) return;
     threadKey = key;
     // Where the window shows the conversation's end, just above the send box.
@@ -716,13 +740,18 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
 
     const q = query.trim().toLowerCase();
     const total = agent.items.filter(i => i.type === 'message').length;
-    const matching = agent.items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)));
+    const matching = agent.items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)) && (!benchmarkOnly || i.benchmark !== false));
     const threadsShown = new Set(matching.map(m => m.thread));
     const matched = new Set(matching);
-    const shown = agent.items.filter(i => i.type === 'message' ? matched.has(i)
+    const all = agent.items.filter(i => i.type === 'message' ? matched.has(i)
       : i.type === 'thread' ? threadsShown.has(i.number)
       : !q && (i.type === 'run' || i.type === 'reset' || details));
+    // Only the newest messages, so the page doesn't grow without end; older ones come on request. A search shows every match.
+    const [shown, hidden] = q ? [all, 0] : recent(all, RECENT + (older[agent.name] || 0));
     const out = [];
+    if (hidden) {
+      out.push(`<div class="older"><button type="button" id="older">Show ${Math.min(OLDER_STEP, hidden)} older ${hidden === 1 ? 'message' : 'messages'}</button><span>${plural(hidden, 'older message')} hidden</span></div>`);
+    }
     let lastDay = null;
     let thread = null;  // the Slack thread being shown, if any
     for (const item of shown) {
@@ -760,8 +789,15 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     container.className = `thread${details ? ' show-details' : ''}`;
     container.innerHTML = out.length ? out.join('') : `<div class="empty-state">${q ? 'No messages match.' : 'Nothing recorded yet. Say hello below.'}</div>`;
     container.querySelectorAll('.text, .preview, .buttons, .files').forEach(el => highlight(el, q));
-    $('count').textContent = q ? `${matches} of ${total} messages` : plural(total, 'message');
-    if (nearBottom || force) window.scrollTo(0, Math.max(0, conversationEnd()));
+    const olderButton = container.querySelector('#older');
+    if (olderButton) olderButton.addEventListener('click', () => {
+      const before = document.documentElement.scrollHeight;
+      older[agent.name] = (older[agent.name] || 0) + OLDER_STEP;
+      renderThread(agent, true, true);
+      window.scrollBy(0, document.documentElement.scrollHeight - before);  // stay on the message you were looking at
+    });
+    $('count').textContent = q ? `${matches} of ${total} messages` : hidden ? `${plural(total, 'message')}, ${hidden} older hidden` : plural(total, 'message');
+    if (!keepPlace && (nearBottom || force)) window.scrollTo(0, Math.max(0, conversationEnd()));
   }
 
   // MARK: Composer
@@ -996,6 +1032,12 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
   $('listen').addEventListener('change', () => store.set('listen', $('listen').value));
   $('text').value = store.get('draft', '');
   $('q').addEventListener('input', e => { query = e.target.value; renderThread(current()); });
+  $('benchmark').checked = benchmarkOnly;
+  $('benchmark').addEventListener('change', e => {
+    benchmarkOnly = e.target.checked;
+    store.set('benchmark', benchmarkOnly ? '1' : '0');
+    renderThread(current(), true);
+  });
   $('details').checked = details;
   $('details').addEventListener('change', e => {
     details = e.target.checked;

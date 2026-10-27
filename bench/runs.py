@@ -242,11 +242,18 @@ def rebuild(run_dir: Path, conversations: dict[str, list[dict]] | None = None) -
         raise RunError(f"the prompt of {run_dir.name} isn't among {info['agent']}'s recorded messages. "
                        f"Record them first: uv run bench sync {info['agent']}")
     start_at = conversation.parse(prompt["sent_at"])
-    end_at = conversation.parse(info["ended_at"]) if info.get("ended_at") else None
+    # A run's messages go from its prompt up to the next thing the user did (the next prompt, or a
+    # recorded reset), not up to ended_at: replies that land after recording stopped still belong to it.
+    end_at = next((conversation.parse(m["sent_at"]) for m in everything
+                   if m["role"] in ("user", "reset") and m["id"] != prompt["id"]
+                   and conversation.parse(m["sent_at"]) > start_at), None)
     messages = [m for m in everything
-                if conversation.parse(m["sent_at"]) >= start_at and (end_at is None or conversation.parse(m["sent_at"]) <= end_at)]
+                if conversation.parse(m["sent_at"]) >= start_at and (end_at is None or conversation.parse(m["sent_at"]) < end_at)]
     messages = [prompt] + [m for m in messages if m["id"] != prompt["id"]]
     replies = [m for m in messages if m["role"] == "agent"]
+    # Timing describes the recorded reply only: a late reply is in the transcript but doesn't stretch it.
+    recorded_until = conversation.parse(info["ended_at"]) if info.get("ended_at") else None
+    timed = [m for m in replies if recorded_until is None or conversation.parse(m["sent_at"]) <= recorded_until]
 
     known = {d.get("path"): d for d in info.get("deliverables") or []}
     files = sorted(p.relative_to(run_dir).as_posix() for p in (run_dir / "deliverables").rglob("*") if p.is_file()) \
@@ -261,7 +268,7 @@ def rebuild(run_dir: Path, conversations: dict[str, list[dict]] | None = None) -
         "messages": [m["id"] for m in messages],
         "links": list(dict.fromkeys(link for m in replies for link in m["links"])),
         "deliverables": [{"path": f, "source": None} | (known.get(f) or {}) for f in files if not f.endswith(".DS_Store")],
-        "timing": (info.get("timing") or {}) | timing(prompt, replies),
+        "timing": (info.get("timing") or {}) | timing(prompt, timed),
         "context": context(info, everything, prompt, run_dir.parent),
     }
     conversation.write_jsonl(run_dir / "transcript.jsonl", messages)

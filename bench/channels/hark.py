@@ -17,6 +17,12 @@ What it guarantees:
   fill(), is checked, and only then is Send clicked. It never types over text
   already in the box, and clears the box if anything fails before Send.
 - Buttons on Hark's messages (connect, approve, book) are recorded, never pressed.
+- A Page Hark builds (a website, shown as a card in the chat) is recorded as a
+  message with its name and its hark.com/site/<project> link, and a copy of its
+  HTML, with its images and fonts embedded, is saved under the inbox's
+  attachments/, since the link needs Hark's
+  sign-in. Hark delivers it as an empty record with a website_coding_agent tool
+  call, which otherwise looks like work.
 
 Hark's empty "work" records (an assistant message with no text yet, while Hark
 thinks or works in its browser) are recorded as "typing" events with action
@@ -32,6 +38,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from collections.abc import Callable
@@ -41,11 +48,13 @@ from pathlib import Path
 
 from bench.channels.chrome import CDP_URL, ChromeError, attach
 from bench.config import PRIVATE_DIR, Agent
+from bench.deliverables import freeze
 from bench.inbox import inbox_path
 
 PIN_DIR = PRIVATE_DIR / "hark"
 ORIGIN = "https://hark.com"
 CHAT_URL = ORIGIN + "/chat"
+SITE_URL = ORIGIN + "/site/{project_id}"  # where hark.com shows a Page it built; needs Hark's sign-in
 TRACK_WINDOW = timedelta(hours=48)  # how long a message is watched for edits
 POLL_SECONDS = 3                    # how often listen checks for new messages
 WORK_EVERY = 10                     # seconds between "working" events for one record (the dashboard joins gaps under 15 s)
@@ -76,6 +85,12 @@ FETCH_JS = """async ({path, params}) => {
   const query = params ? '?' + new URLSearchParams(params) : '';
   const r = await fetch(path + query, {credentials: 'include', headers: {accept: 'application/json'}});
   return {status: r.status, text: await r.text()};
+}"""
+
+
+TEXT_JS = """async (path) => {
+  const r = await fetch(path, {credentials: 'include'});
+  return {status: r.status, type: r.headers.get('content-type') || '', text: await r.text()};
 }"""
 
 
@@ -148,6 +163,28 @@ class HarkWeb:
             return json.loads(result["text"])
         except ValueError:
             raise HarkNetworkError(f"hark.com's answer to {path} isn't JSON") from None
+
+    def text(self, path: str, page=None) -> str:
+        """The text (a page's HTML) at one of hark.com's own /api/ paths, fetched from inside the Hark tab.
+
+        hark.com answers /api/files/… by redirecting to a signed copy of the file; the
+        browser follows that itself, so only hark.com is ever asked.
+        """
+        from playwright.sync_api import Error as PlaywrightError
+        if not path.startswith("/api/"):
+            raise HarkError(f"not fetching {path}: only hark.com's own /api/ paths are read")
+        page = page or self.page()
+        if not on_hark(page.url):
+            raise HarkNetworkError(f"the Hark tab is at {page.url.split('?')[0]}, not hark.com")
+        try:
+            result = page.evaluate(TEXT_JS, path)
+        except PlaywrightError as e:
+            raise HarkNetworkError(f"couldn't read {path} from the Hark tab: {str(e).splitlines()[0]}") from None
+        if result["status"] in (401, 403):
+            raise HarkError("hark.com says nobody is signed in. Run: uv run bench hark-login")
+        if result["status"] != 200:
+            raise HarkNetworkError(f"hark.com answered {path.split('?')[0]} with HTTP {result['status']}")
+        return result["text"]
 
     def session(self, page=None) -> dict | None:
         """The signed-in Hark user ({id, email, name, …}), or None."""
@@ -266,7 +303,31 @@ def running(item: dict) -> bool:
 
 def is_work(msg: dict) -> bool:
     """An empty assistant record that stands for Hark thinking or working, not a message."""
-    return msg.get("role") != "user" and not msg.get("content") and not msg.get("actions")
+    return msg.get("role") != "user" and not msg.get("content") and not msg.get("actions") and not pages(msg)
+
+
+def pages(msg: dict) -> list[dict]:
+    """The Pages (websites Hark built) a record carries, as hark.com finds them for its website card:
+    a tool call whose result names a project and whose artifacts include website/….html."""
+    found = []
+    for call in msg.get("toolCalls") or []:
+        result = call.get("result") if isinstance(call.get("result"), dict) else {}
+        html = [a for a in call.get("artifactKeys") or []
+                if isinstance(a, dict) and (a.get("path") or "").startswith("website/") and a["path"].endswith(".html")]
+        if not (isinstance(result.get("project_id"), str) and html):
+            continue
+        index = next((a for a in html if a["path"] == "website/index.html"), html[0])
+        name = (call.get("input") or {}).get("project_name") or result.get("project_name") or "Page"
+        found.append({"project_id": result["project_id"], "name": str(name),
+                      "url": SITE_URL.format(project_id=result["project_id"]),
+                      "download": index.get("download_url"),
+                      "built_at": ms_time(call.get("updatedAt") or call.get("dispatchedAt"))})
+    return found
+
+
+def safe_name(name: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9._ -]", "_", name).strip(". ")[:120]
+    return name or "page"
 
 
 def buttons(actions: list[dict] | None) -> list[list[dict]] | None:
@@ -274,9 +335,33 @@ def buttons(actions: list[dict] | None) -> list[list[dict]] | None:
     return [row] if row else None
 
 
-def message_event(msg: dict, agent: Agent) -> dict:
-    """One Hark message in the shared event format, without kind and emitted_at."""
+def ornament(presentation: dict | None) -> str | None:
+    """The caption Hark puts under a rich card (a table, an order summary), which isn't in `content`.
+
+    It lives at presentation.ornament or presentation.<kind>.ornament, like
+    {"kind": "table", "table": {"rows": …, "ornament": "I'd go with the Four Seasons."}}.
+    """
+    if not isinstance(presentation, dict):
+        return None
+    inner = presentation.get(presentation.get("kind") or "")
+    for holder in (presentation, inner if isinstance(inner, dict) else {}):
+        text = holder.get("ornament")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    return None
+
+
+def message_event(msg: dict, agent: Agent, attachments: list[dict] | None = None) -> dict:
+    """One Hark message in the shared event format, without kind and emitted_at.
+    `attachments` are the files saved for it, like the copy of a Page (see HarkChannel._page_files)."""
     presentation = (msg.get("presentation") or {}).get("kind")
+    text = msg.get("content") or ""
+    caption = ornament(msg.get("presentation"))
+    if caption and caption not in text:
+        text = f"{text}\n\n{caption}" if text else caption
+    found = pages(msg)
+    for page in found:  # the card hark.com shows: the Page's name, and where it opens
+        text = "\n\n".join(filter(None, [text, f"Page: {page['name']}\n{page['url']}"]))
     event = {
         "channel": "hark",
         "agent": agent.name,
@@ -284,15 +369,46 @@ def message_event(msg: dict, agent: Agent) -> dict:
         "guid": f"hark:{msg['id']}",
         "message_id": msg["id"],
         "is_from_me": msg.get("role") == "user",
-        "text": msg.get("content") or None,
+        "text": text or None,
         "date": ms_time(msg.get("timestamp")),
-        "rich": True if presentation and presentation != "text" else None,
+        "rich": True if (presentation and presentation != "text") or found else None,
         "buttons": buttons(msg.get("actions")),
+        "hark_kind": "page" if found else None,
+        "pages": found or None,
+        "attachments": attachments or None,
         "streaming": True if msg.get("isStreaming") else None,
         "triggered_by": msg.get("triggeredByMessageId"),  # the message of yours it answers
         "source": msg.get("source"),
     }
     return {k: v for k, v in event.items() if v is not None}
+
+
+def screen_summary(request: dict) -> tuple[str, dict]:
+    """What a secure screen asks for (a sign-in, a card form), in words, and the button Hark shows for it.
+
+    Only labels are recorded: the screen's instructions, its fields' names and its sign-in choices. Never a value,
+    and nothing is ever entered. Hark sends these as request.displayHint "secure_screen" with request.screen."""
+    screen = request.get("screen") if isinstance(request.get("screen"), dict) else {}
+    site = request.get("prompt") if isinstance(request.get("prompt"), str) else None
+    title = (screen.get("header") or {}).get("title") if isinstance(screen.get("header"), dict) else None
+    parts = [c for c in (screen.get("components") or []) if isinstance(c, dict)]
+    instructions = [c["text"] for c in parts if c.get("type") == "instructions" and isinstance(c.get("text"), str)]
+    fields = [c["label"] for c in parts if c.get("type") not in ("instructions", "choice") and isinstance(c.get("label"), str)]
+    choices = [c["label"] for c in parts if c.get("type") == "choice" and isinstance(c.get("label"), str)]
+    primary = (screen.get("primary_action") or {}).get("label") if isinstance(screen.get("primary_action"), dict) else None
+    heading = " · ".join(dict.fromkeys(filter(None, [site, title])))  # Hark often repeats the title as the site
+    lines = [f"Action required: {heading}" if heading else "Action required: a secure screen"]
+    lines += instructions
+    if fields:
+        lines.append("Fields: " + ", ".join(fields))
+    if choices:
+        lines.append("Or continue with: " + ", ".join(choices))
+    if primary:
+        lines.append(f"Button: {primary}")
+    lines.append("(Hark's secure screen; recorded, nothing entered)")
+    is_login = "login" in (title or "").lower() or "sign in" in (title or "").lower()
+    label = f"Sign in to {site}" if is_login and site else (title or site or "Open")
+    return "\n".join(lines), {"text": label, "kind": "secure_screen"}
 
 
 def ask_event(ask_id: str, ask: dict, agent: Agent) -> dict:
@@ -301,12 +417,20 @@ def ask_event(ask_id: str, ask: dict, agent: Agent) -> dict:
     options = ask.get("options") or ask.get("choices") or []
     row = [{"text": o if isinstance(o, str) else str(o.get("label") or o.get("text") or o.get("value") or "?"), "kind": "option"}
            for o in options]
+    kind = "ask"
+    request = ask.get("request")
+    if not text and isinstance(request, dict) and (request.get("screen") or request.get("displayHint")):
+        text, button = screen_summary(request)
+        row, kind = [button], "secure_screen"
+    elif not text and not options and not set(ask) - {"id", "at", "status", "dispatchId", "dispatchedAt", "updatedAt"}:
+        # Hark trims an ask to its ids once it's answered or withdrawn: say so instead of dumping them.
+        text, kind = "(Hark closed this request" + (f": {ask['status']}" if isinstance(ask.get("status"), str) else "") + ")", "ask_closed"
     event = {
         "channel": "hark", "agent": agent.name, "handle": agent.handle,
         "guid": f"hark:ask:{ask_id}", "message_id": f"ask:{ask_id}", "is_from_me": False,
         "text": text or json.dumps(ask, ensure_ascii=False)[:2000],
-        "date": ms_time(ask.get("createdAt") or ask.get("timestamp")),
-        "rich": True, "buttons": [row] if row else None, "hark_kind": "ask",
+        "date": ms_time(ask.get("createdAt") or ask.get("timestamp") or ask.get("at")),
+        "rich": True, "buttons": [row] if row else None, "hark_kind": kind,
     }
     return {k: v for k, v in event.items() if v is not None}
 
@@ -374,6 +498,7 @@ class HarkChannel:
         self.pins_path = pin_dir / "pins.json"
         self.inbox = inbox or inbox_path("hark")
         self.state_path = self.inbox.parent / "state.json"
+        self.attachments_dir = self.inbox.parent / "attachments"  # copies of the Pages Hark built
         self.on_event = on_event
         self.sleep, self.clock = sleep, clock
         self.pins: dict = {}
@@ -447,7 +572,32 @@ class HarkChannel:
     def _observe(self, msg: dict, at: str | None = None) -> int:
         if is_work(msg):
             return self._working(msg["id"], "working", at=at) if running(msg) else 0
-        return 1 if self._record(message_event(msg, self.agent), at) else 0
+        return 1 if self._record(message_event(msg, self.agent, self._page_files(msg)), at) else 0
+
+    def _page_files(self, msg: dict) -> list[dict]:
+        """Saves a copy of each Page the record carries, as attachments/<message>/<name>.html, and lists them.
+        A Page that couldn't be saved is listed without a path; the next sync tries again."""
+        files = []
+        for page in pages(msg):
+            dest = self.attachments_dir / msg["id"] / f"{safe_name(page['name'])}.html"
+            info = {"name": dest.name, "mime_type": "text/html"}
+            if not dest.exists():
+                if not page.get("download"):
+                    files.append(info)
+                    continue
+                try:
+                    html = self.site.text(page["download"])
+                except HarkError as e:
+                    print(f"hark: couldn't save the Page {page['name']!r} of message {msg['id']}: {e}", file=sys.stderr)
+                    files.append(info)
+                    continue
+                html, missing = freeze(html)  # with its images and fonts inside, so it opens anywhere
+                for problem in missing:
+                    print(f"hark: the saved Page {page['name']!r} is missing a file: {problem}", file=sys.stderr)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_text(html)
+            files.append(info | {"bytes": dest.stat().st_size, "path": str(dest.relative_to(self.inbox.parent))})
+        return files
 
     def _prune(self) -> None:
         cutoff = iso(datetime.now(UTC) - TRACK_WINDOW)
