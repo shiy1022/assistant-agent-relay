@@ -195,7 +195,8 @@ class HarkWeb:
 
     def history(self, conversation_id: str, *, after: str | None = None, before: dict | None = None) -> dict:
         """The latest page of a thread, or the page after a message ID or before a message."""
-        params = {"conversationId": conversation_id, "v": 2, "after": after}
+        # No "v=2": since 2026-10-28 that variant answers without any messages, and paging under it gives 404.
+        params = {"conversationId": conversation_id, "after": after}
         if before:
             params |= {"before": before["id"], "beforeCreatedAt": before["timestamp"]}
         return self.get("/api/messages/history", **params)
@@ -291,9 +292,22 @@ def ms_time(ms) -> str | None:
 
 
 def ordered(history: dict) -> list[dict]:
-    """A history page's messages, in the thread's order."""
+    """A history page's messages, in the thread's order.
+
+    hark.com has served two shapes: a dict of messages by id plus a "log" giving the order (until
+    2026-10-28), and since then a list already in order. Both are read."""
     messages = history.get("messages") or {}
+    if isinstance(messages, list):
+        return sorted((m for m in messages if isinstance(m, dict) and m.get("id")), key=lambda m: m.get("timestamp") or 0)
     return [messages[e["id"]] for e in history.get("log") or [] if e.get("kind") == "message" and e.get("id") in messages]
+
+
+def ids(history: dict) -> set[str]:
+    """The ids of a history page's messages, whichever shape the page has."""
+    messages = history.get("messages") or {}
+    if isinstance(messages, list):
+        return {m["id"] for m in messages if isinstance(m, dict) and m.get("id")}
+    return set(messages)
 
 
 def running(item: dict) -> bool:
@@ -351,6 +365,48 @@ def ornament(presentation: dict | None) -> str | None:
     return None
 
 
+def card(presentation: dict | None) -> dict | None:
+    """The structured card behind a rich Hark message, trimmed to what the console draws: an order summary
+    (merchant, items, breakdown, total, how it's paid, the button's label), a table, or a titled summary.
+    Image addresses are left out. The button is recorded by its label only; it's never pressed."""
+    if not isinstance(presentation, dict):
+        return None
+    kind = presentation.get("kind")
+    inner = presentation.get(kind) if isinstance(presentation.get(kind), dict) else {}
+    text = lambda v: v.strip() if isinstance(v, str) and v.strip() else None
+    if kind == "order_summary":
+        action = inner.get("action") if isinstance(inner.get("action"), dict) else {}
+        out = {
+            "kind": kind,
+            "title": text(presentation.get("title")) or text(inner.get("merchant")),
+            "merchant": text(inner.get("merchant")),
+            "site": text(inner.get("site")),
+            "destination": text(inner.get("destination")),
+            "line_items": [{k: text(i.get(k)) for k in ("name", "qty", "price", "description") if text(i.get(k))}
+                           for i in inner.get("line_items") or [] if isinstance(i, dict)],
+            "breakdown": [{"label": text(b.get("label")), "amount": text(b.get("amount"))}
+                          for b in inner.get("breakdown") or [] if isinstance(b, dict) and text(b.get("label"))],
+            "total": text(inner.get("total")),
+            "payment": text(inner.get("payment")),
+            "ornament": text(inner.get("ornament")),
+            "action": text(action.get("label")),
+        }
+    elif kind == "table":
+        out = {
+            "kind": kind,
+            "title": text(presentation.get("title")) or text(inner.get("title")),
+            "columns": [str(c) for c in inner.get("columns") or []],
+            "rows": [[str(c) for c in r] for r in inner.get("rows") or [] if isinstance(r, list)],
+            "ornament": text(inner.get("ornament")),
+        }
+    elif kind == "summary":
+        out = {"kind": kind, "title": text(presentation.get("title")) or text(inner.get("title")),
+               "markdown": text(inner.get("markdown"))}
+    else:
+        return None
+    return {k: v for k, v in out.items() if v not in (None, [], "")}
+
+
 def message_event(msg: dict, agent: Agent, attachments: list[dict] | None = None) -> dict:
     """One Hark message in the shared event format, without kind and emitted_at.
     `attachments` are the files saved for it, like the copy of a Page (see HarkChannel._page_files)."""
@@ -368,10 +424,14 @@ def message_event(msg: dict, agent: Agent, attachments: list[dict] | None = None
         "handle": agent.handle,
         "guid": f"hark:{msg['id']}",
         "message_id": msg["id"],
-        "is_from_me": msg.get("role") == "user",
+        # Hark drops product announcements into the thread with role "user" and source "announcement";
+        # they're Hark's, not yours, and they're marked as a notice so they don't count as a prompt.
+        "is_from_me": msg.get("role") == "user" and msg.get("source") != "announcement",
+        "service": "announcement" if msg.get("source") == "announcement" else None,
         "text": text or None,
         "date": ms_time(msg.get("timestamp")),
         "rich": True if (presentation and presentation != "text") or found else None,
+        "card": card(msg.get("presentation")),
         "buttons": buttons(msg.get("actions")),
         "hark_kind": "page" if found else None,
         "pages": found or None,
@@ -624,18 +684,34 @@ class HarkChannel:
             while (page.get("older") or {}).get("hasMore") and ordered(page):
                 page = self.site.history(cid, before=ordered(page)[0])
                 pages.insert(0, page)
-        elif (last := self.state["last_id"]) and last not in (latest.get("messages") or {}) \
+        elif (last := self.state["last_id"]) and last not in ids(latest) \
                 and (latest.get("older") or {}).get("hasMore"):
             # A lot arrived since last time: page forward from the last recorded message until the latest page.
             caught_up, cursor = [], last
-            for _ in range(MAX_PAGES):
-                page = self.site.history(cid, after=cursor)
-                if not ordered(page):
-                    break
-                caught_up.append(page)
-                if any(m["id"] in (latest.get("messages") or {}) for m in ordered(page)):
-                    break
-                cursor = ordered(page)[-1]["id"]
+            try:
+                for _ in range(MAX_PAGES):
+                    page = self.site.history(cid, after=cursor)
+                    if not ordered(page):
+                        break
+                    caught_up.append(page)
+                    if any(m["id"] in ids(latest) for m in ordered(page)):
+                        break
+                    cursor = ordered(page)[-1]["id"]
+            except HarkNetworkError as e:
+                if "HTTP 404" not in str(e):
+                    raise
+                # hark.com no longer knows the last recorded message (it drops or rewrites old ones), so page
+                # backwards from the latest page instead, until a page holds something already recorded.
+                caught_up, page = [], latest
+                for _ in range(MAX_PAGES):
+                    if not (page.get("older") or {}).get("hasMore") or not ordered(page):
+                        break
+                    page = self.site.history(cid, before=ordered(page)[0])
+                    if not ordered(page):
+                        break
+                    caught_up.insert(0, page)
+                    if any(m["id"] in self.state["tracked"] for m in ordered(page)):
+                        break
             pages = caught_up + pages
         messages: dict[str, dict] = {}
         for page in pages:
@@ -661,7 +737,7 @@ class HarkChannel:
         if not text.strip():
             raise HarkError("refusing to send an empty message")
         cid = self.pins["conversation_id"]
-        before = set(self.site.history(cid).get("messages") or {})
+        before = ids(self.site.history(cid))
         self.site.send(text)
         deadline = self.clock() + SENT_SECONDS
         while True:

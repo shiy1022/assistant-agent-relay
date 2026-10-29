@@ -143,6 +143,33 @@ def test_a_rich_cards_caption_is_recorded_with_its_text(site, dirs):
     assert texts[3] == "Plain."
 
 
+def test_a_rich_cards_structure_is_recorded_for_the_console(site, dirs):
+    order = {"kind": "order_summary", "title": "Enterprise, PHX", "order_summary": {
+        "merchant": "Enterprise, PHX", "site": "enterprise.com", "destination": "Pickup Sat 1 PM; return Mon 3 PM",
+        "line_items": [{"name": "Compact Nissan Versa or similar", "qty": "1", "price": "$180.20",
+                        "description": "Pay Later, unlimited mileage", "image_url": "https://x/y.png"}],
+        "breakdown": [{"label": "Taxes and fees", "amount": "$85.29"}], "total": "$265.49",
+        "payment": "Pay Later at counter", "ornament": "Nothing is charged now.",
+        "action": {"id": "f0e5", "label": "Reserve Car"}}}
+    table = {"kind": "table", "title": "Hotels", "table": {"columns": ["Hotel", "Price"], "rows": [["Four Seasons", "$3,145"]],
+                                                           "ornament": "I'd go with the Four Seasons.", "row_sites": ["fourseasons.com"]}}
+    site.add(msg("user", "car?"),
+             msg(content="| Item | Price |", presentation=order, source="send_bubble"),
+             msg(content="| Hotel |", presentation=table, source="send_bubble"),
+             msg(content="Plain.", presentation={"kind": "text"}))
+    sync(site, dirs)
+    cards = [e.get("card") for e in events(dirs)]
+    assert cards[1] == {"kind": "order_summary", "title": "Enterprise, PHX", "merchant": "Enterprise, PHX", "site": "enterprise.com",
+                        "destination": "Pickup Sat 1 PM; return Mon 3 PM",
+                        "line_items": [{"name": "Compact Nissan Versa or similar", "qty": "1", "price": "$180.20",
+                                        "description": "Pay Later, unlimited mileage"}],  # no image address
+                        "breakdown": [{"label": "Taxes and fees", "amount": "$85.29"}], "total": "$265.49",
+                        "payment": "Pay Later at counter", "ornament": "Nothing is charged now.", "action": "Reserve Car"}
+    assert cards[2] == {"kind": "table", "title": "Hotels", "columns": ["Hotel", "Price"], "rows": [["Four Seasons", "$3,145"]],
+                        "ornament": "I'd go with the Four Seasons."}
+    assert cards[0] is None and cards[3] is None
+
+
 def test_another_account_is_refused_before_anything_is_read(site, dirs):
     sync(site, dirs)
     site.user = {"id": "u-someone-else", "email": "other@example.com"}
@@ -579,3 +606,26 @@ def test_a_closed_ask_is_recorded_as_closed_not_as_json():
     assert event["text"] == "(Hark closed this request)" and event["hark_kind"] == "ask_closed" and "buttons" not in event
     event = hark_module.ask_event("a35a", {"id": "a35a825c", "at": 1793136462503, "status": "resolved"}, agent)
     assert event["text"] == "(Hark closed this request: resolved)"
+
+
+def test_history_pages_are_read_in_both_shapes_hark_has_served():
+    # Until 2026-10-28: messages by id plus a log for the order. Since then: a list, already ordered by time.
+    old = {"messages": {"b": {"id": "b", "role": "assistant", "timestamp": 2}, "a": {"id": "a", "role": "user", "timestamp": 1}},
+           "log": [{"kind": "message", "id": "a"}, {"kind": "window", "id": "w"}, {"kind": "message", "id": "b"}]}
+    new = {"messages": [{"id": "b", "role": "assistant", "timestamp": 2}, {"id": "a", "role": "user", "timestamp": 1}],
+           "older": {"hasMore": True, "cursor": {"id": "a", "createdAt": 1}}, "newer": {"hasMore": False}, "threads": []}
+    assert [m["id"] for m in hark_module.ordered(old)] == ["a", "b"]
+    assert [m["id"] for m in hark_module.ordered(new)] == ["a", "b"]
+    assert hark_module.ids(old) == hark_module.ids(new) == {"a", "b"}
+    assert hark_module.ordered({}) == [] and hark_module.ids({}) == set()
+
+
+def test_hark_announcements_are_notices_not_messages_from_me():
+    agent = SimpleNamespace(name="hark", handle="hark.com")
+    msg = {"id": "5e2f", "role": "user", "source": "announcement", "timestamp": 1793205900906,
+           "content": "Good news! I have a Mac app now, Hark Pro for macOS."}
+    event = hark_module.message_event(msg, agent)
+    assert event["is_from_me"] is False and event["service"] == "announcement"
+    assert event["text"].startswith("Good news!")
+    mine = hark_module.message_event({"id": "a1", "role": "user", "timestamp": 1, "content": "hi"}, agent)
+    assert mine["is_from_me"] is True and "service" not in mine
