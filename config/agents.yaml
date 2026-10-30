@@ -13,11 +13,12 @@
 #             handles, so changing one means reader/install.sh and re-approving it)
 # Agents left blank are skipped.
 
-# The one Slack workspace agent-runner may use, by name or by its address
-# (pjtty for pjtty.slack.com). A Slack token for any other workspace is refused
-# before anything is read or sent.
+# The one Slack workspace agent-runner may use: the one YOUR dot is added to,
+# by name or by its address (pjtty for pjtty.slack.com). Testers aren't all in
+# the same workspace, so set this to yours. A Slack token for any other
+# workspace is refused before anything is read or sent.
 slack:
-  workspace: PJTTY
+  workspace: PJTTY         # Jassmin's. Replace with the workspace your dot is in
   # api: post through Slack's API. web: type into Slack's web client in the
   # dedicated Chrome, because the dot ignores messages Slack marks as sent by an
   # app. Replies are read through the API either way.

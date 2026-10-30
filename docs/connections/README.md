@@ -16,7 +16,7 @@ Each agent has two links, and either one can break:
 | **Wajo (Fo)** | Telegram | A Telethon session on your Telegram account | `uv run bench sync wajo` | [wajo-telegram.md](wajo-telegram.md) |
 | **Muse** | WhatsApp | `bench-whatsapp`, a linked device that runs in the background | `uv run bench whatsapp-status` | [muse-instinct-whatsapp.md](muse-instinct-whatsapp.md) |
 | **Instinct** | WhatsApp | The same bridge (not set up yet) | `uv run bench whatsapp-status` | [muse-instinct-whatsapp.md](muse-instinct-whatsapp.md#instinct-once-you-have-access) |
-| **Dots** | Slack (PJTTY only) | A user token for reading, and the dedicated Chrome for sending | `uv run bench slack-status` | [dots-slack.md](dots-slack.md) |
+| **Dots** | Slack (one workspace: the one your dot is in) | A user token for reading, and the dedicated Chrome for sending | `uv run bench slack-status` | [dots-slack.md](dots-slack.md) |
 | **Hark** | hark.com | The dedicated Chrome, signed in to Hark | `uv run bench hark-status` | [hark.md](hark.md) |
 
 Dots and Hark share the [dedicated Chrome](dedicated-chrome.md).
@@ -109,9 +109,9 @@ All healthy looks like this (checked 2026-10-25):
 bench-whatsapp is running in the background.
 WhatsApp: linked, connected, offline; agents: muse
 
-Slack: PJTTY (https://pjtty.slack.com/), team T0CARQF460P, signed in as <you> (U…)
+Slack: <your workspace> (https://<it>.slack.com/), team T…, signed in as <you> (U…)
 …
-  web client: signed in; <your dot> (DM) - PJTTY - Slack is open in the dedicated Chrome
+  web client: signed in; <your dot> (DM) - <your workspace> - Slack is open in the dedicated Chrome
 
 Hark: signed in as <your Google email> (<id>)
 Main thread: <thread id> (idle)
@@ -178,7 +178,7 @@ Never commit these or paste them anywhere. The Telegram session and WhatsApp's `
 | Telegram session, Fo's pin | `~/Library/Application Support/agent-runner/telegram/` (`bench.session`, `peers.json`) |
 | WhatsApp bridge | `~/Library/Application Support/agent-runner/whatsapp/` (`session.db`, `agents.json`, `status.json`, `inbox/`) |
 | WhatsApp background job, log | `~/Library/LaunchAgents/local.personal-agent-benchmark.bench-whatsapp.plist`, `~/Library/Logs/bench-whatsapp.log` |
-| Slack pins (PJTTY's team ID, the dot's DM) | `~/Library/Application Support/agent-runner/slack/pins.json` |
+| Slack pins (your workspace's team ID, the dot's DM) | `~/Library/Application Support/agent-runner/slack/pins.json` |
 | Hark pins (account, main thread) | `~/Library/Application Support/agent-runner/hark/pins.json` |
 | Dedicated Chrome profile | `~/Library/Application Support/agent-runner/chrome/` |
 | Recorded messages | `data/inbox/<channel>/` (WhatsApp's are in the bridge's `inbox/`) |

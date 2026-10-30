@@ -6,7 +6,7 @@ Back to [all connections](README.md). Used by [Dots](dots-slack.md) (sending onl
 
 - A real Google Chrome with its own profile at `~/Library/Application Support/agent-runner/chrome` and a debugging port on `127.0.0.1:9222`. Playwright attaches to it and never launches a browser of its own, so sign-ins behave as in a normal browser and stay in the profile across restarts.
 - It runs as a **second Chrome app** next to your everyday one, with its own Dock icon. It isn't signed in to Chrome and doesn't sync.
-- It's signed in to PJTTY's Slack and to Hark (with your Google account), each once by hand.
+- It's signed in to your Slack workspace (the one your dot is in) and to Hark (with your Google account), each once by hand.
 - Detaching leaves Chrome running with its tabs as they were.
 
 The code is in [bench/channels/chrome.py](../../bench/channels/chrome.py).

@@ -1,5 +1,6 @@
-# Slack app for agent-runner. Create it in the PJTTY workspace only:
-# api.slack.com/apps → Create New App → From a manifest → pick PJTTY → paste this.
+# Slack app for agent-runner. Create it in the one workspace your dot is in (the
+# one named under `slack: workspace:` in config/agents.yaml):
+# api.slack.com/apps → Create New App → From a manifest → pick that workspace → paste this.
 #
 # It asks for user token scopes only, so it acts as you (a dot only answers its
 # owner) and has no bot of its own. Nothing here lets it read channels or other

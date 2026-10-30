@@ -54,7 +54,7 @@ Not set up yet. Public reports say `/new` gives "Fresh slate it is." Long-term m
   - Asked again right after, in new threads, it didn't use them.
   - The 24 h check is still to do.
 - **Each top-level DM is its own thread, but they all share the dot's notes.** A new DM isn't a new context.
-- **The dot can read PJTTY's channels and public web pages, this repo included,** and remembers what it learns there. Asking it to forget can't stop that.
+- **The dot can read its workspace's channels and public web pages, this repo included,** and remembers what it learns there. Asking it to forget can't stop that.
 
 ### Hark, hark.com
 
