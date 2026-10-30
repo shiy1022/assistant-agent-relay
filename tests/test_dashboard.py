@@ -1,6 +1,6 @@
 import base64
 import json
-from datetime import UTC, datetime
+from datetime import timedelta, UTC, datetime
 
 from bench import dashboard
 from bench.config import Agent
@@ -112,7 +112,7 @@ def test_typing_events_close_together_are_one_stretch(tmp_path):
 def test_runs_mark_where_they_began_for_their_agent(tmp_path):
     started = datetime(2026, 10, 24, 20, 57, 29).astimezone()  # run folders are named in local time
     snap = build(tmp_path, whatsapp=[
-        wa("new", "A", "hi", from_me=True, date="2026-10-25T03:40:34.000Z"),
+        wa("new", "A", "hi", from_me=True, date=dashboard.iso(started - timedelta(minutes=17))),  # before the run, in any zone
         wa("new", "B", "Plan a trip", from_me=True, date=dashboard.iso(started.replace(second=58))),
     ], runs=[
         (started.strftime("%Y%m%d-%H%M%S") + "-travel-day1-muse", {"task": "Travel", "step": "DAY 1", "agent": "muse"}),
@@ -149,7 +149,7 @@ def test_write_keeps_the_page_private(tmp_path, monkeypatch):
     monkeypatch.setattr(dashboard, "snapshot", lambda **kw: {"generated_at": "2026-10-25T04:00:00.000Z", "agents": [], "sources": []})
     out = dashboard.write(tmp_path / "out" / "dashboard.html")
     assert oct(out.stat().st_mode & 0o777) == "0o600"
-    assert "Agent conversations" in out.read_text()
+    assert "agenttest" in out.read_text()
 
 
 DOTS = Agent("dots", "U0DOT0001", 120, 1800, channel="slack")
@@ -224,3 +224,37 @@ def test_other_channels_are_not_grouped(tmp_path):
     items = agent(snap, "wajo")["items"]
     assert [i["type"] for i in items] == ["message", "message"]
     assert items[1]["reply_to_text"] == "hi" and "thread" not in items[1]
+
+
+def test_messages_outside_a_run_are_marked_off_task_but_unprompted_ones_are_not():
+    from datetime import timedelta
+    t0 = datetime(2026, 10, 27, 18, 0, tzinfo=UTC)
+    at = lambda minutes: dashboard.iso(t0 + timedelta(minutes=minutes))
+    msgs = [
+        {"id": "m1", "from_me": True, "date": at(0)},    # the task prompt, listed by its run
+        {"id": "m2", "from_me": False, "date": at(1)},   # its reply, recorded while the run went on
+        {"id": "m3", "from_me": True, "date": at(40)},   # a hotel question you asked outside any run
+        {"id": "m4", "from_me": False, "date": at(42)},  # the agent's answer to it
+        {"id": "m5", "from_me": False, "date": at(50)},  # and a follow-up to that answer
+        {"id": "m6", "from_me": False, "date": at(120)}, # hours later, something the agent sent on its own
+        {"id": "m7", "from_me": True, "date": at(130)},  # a second task prompt, by its run's window alone
+        {"id": "3EB0", "guid": "whatsapp:muse:3EB0", "from_me": True, "date": at(200)},  # a prompt a run lists by guid
+        {"id": "m9", "from_me": True, "date": at(299.95)},  # stamped a moment before its run's start, run still going
+    ]
+    runs = [
+        {"type": "run", "date": at(0), "ended": at(5), "message_ids": ["m1"]},
+        {"type": "run", "date": at(129), "ended": at(131), "message_ids": []},
+        {"type": "run", "date": at(210), "ended": at(215), "message_ids": ["whatsapp:muse:3EB0"]},
+        {"type": "run", "date": at(300), "ended": None, "message_ids": []},
+    ]
+    dashboard.mark_benchmark(msgs, runs)
+    assert {m["id"]: m["benchmark"] for m in msgs} == {
+        "m1": True, "m2": True, "m3": False, "m4": False, "m5": False, "m6": True, "m7": True, "3EB0": True, "m9": True}
+
+
+def test_run_items_carry_their_message_ids_and_end(tmp_path):
+    (tmp_path / "r1").mkdir()
+    (tmp_path / "r1" / "run.json").write_text(json.dumps({"agent": "wajo", "started_at": "2026-10-27T18:00:00Z",
+        "ended_at": "2026-10-27T18:05:00Z", "prompt_message": "p1", "messages": ["a1", "a2"]}))
+    [run] = dashboard.run_items(tmp_path)
+    assert run["message_ids"] == ["a1", "a2", "p1"] and run["ended"] == "2026-10-27T18:05:00Z"

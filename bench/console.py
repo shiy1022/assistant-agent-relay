@@ -1,6 +1,6 @@
 """The console: the dashboard, live, with a box to send messages to the agents.
 
-    bench console [--port PORT] [--open] [--dry-run]
+    bench console [--port PORT] [--open] [--dry-run] [--auto-sync SECONDS]
 
 A small web server on this Mac, reachable only from it (127.0.0.1). The page
 shows every recorded conversation, as `bench dashboard` does, and updates by
@@ -21,6 +21,12 @@ short: the new message waits for it.
 Whenever an agent's reply with a link is recorded, the page behind the link
 is saved for grading, by bench.snapshots: into the agent's latest run, as it
 looked then. That's off in --dry-run.
+Replies that arrive after a job has stopped listening are picked up by
+themselves: every --auto-sync seconds (60 by default; 0 turns it off) the
+console queues `bench sync AGENT` for each agent whose channel is idle, through
+the same lane, so it never gets in the way of a message. WhatsApp needs none,
+since bench-whatsapp records it all the time. Each agent keeps one
+data/console/autosync-AGENT/ folder, written over each time.
 
 Only the page it serves can use it. The address it prints carries a token,
 every request has to show it, and requests addressed to any other host name
@@ -62,6 +68,11 @@ SENT_SKEW = timedelta(seconds=5)  # a sent message can be stamped a little befor
 STOP_GRACE = 30            # seconds running jobs get to write their records when the console stops
 LOG_LINES = 200            # output lines kept in memory per job (all of it is in output.log)
 SNAPSHOT_SETTLE = 5        # seconds to let a reply's records land before saving its links' pages
+AUTO_SYNC_SECONDS = 60     # how often idle channels are synced by themselves (0: never)
+AUTO_SYNC_TIMEOUT = 180    # seconds an automatic sync may run before it's stopped, so a hung one can't hold its channel
+LOCK_WAIT = 1800           # seconds a message or run waits for a bench command started outside the console to free its channel
+LOCK_POLL = 5              # seconds between tries while waiting
+LOCK_HELD = "another bench command is using"  # what bench prints when a channel's lock is held
 COOKIE = "agent_console_token"
 
 # Stands in for bench in --dry-run: says what it would have run, and sends nothing.
@@ -120,12 +131,14 @@ class Job:
     error: str | None = None
     stopping: bool = False
     preempted: bool = False       # its listening was stopped for the next message
+    auto: bool = False            # a sync the console queued by itself
+    timed_out: bool = False       # an automatic sync that ran past AUTO_SYNC_TIMEOUT and was stopped
     proc: subprocess.Popen | None = field(default=None, repr=False)
     log: deque = field(default_factory=lambda: deque(maxlen=LOG_LINES), repr=False)
 
     def public(self) -> dict:
         keys = ("id", "kind", "agent", "channel", "text", "listen", "task", "step", "cell", "created_at", "state",
-                "started_at", "ended_at", "sent_at", "sent_id", "exit_code", "error", "stopping", "preempted")
+                "started_at", "ended_at", "sent_at", "sent_id", "exit_code", "error", "stopping", "preempted", "auto")
         return {k: getattr(self, k) for k in keys} | {"log": list(self.log)[-12:]}
 
 
@@ -134,7 +147,9 @@ class Console:
 
     def __init__(self, agents: dict[str, Agent] | None = None, *, jobs_dir: Path = JOBS_DIR,
                  python: str = sys.executable, dry_run: bool = False, inboxes: dict[str, Path] | None = None,
-                 runs_dir: Path = dashboard.RUNS_DIR, resets_file: Path | None = None, snapshot_links: bool | None = None):
+                 runs_dir: Path = dashboard.RUNS_DIR, resets_file: Path | None = None, snapshot_links: bool | None = None,
+                 auto_sync: float = AUTO_SYNC_SECONDS, auto_sync_timeout: float = AUTO_SYNC_TIMEOUT,
+                 lock_wait: float = LOCK_WAIT, lock_poll: float = LOCK_POLL):
         self.all_agents = load_agents() if agents is None else agents
         self.agents = {n: a for n, a in self.all_agents.items() if a.channel in SENDABLE}
         self.jobs_dir = jobs_dir
@@ -144,6 +159,10 @@ class Console:
         self.inboxes = inboxes or {c: inbox_path(c) for c in CHANNELS}
         self.runs_dir = runs_dir
         self.resets_file = resets_file or resets.RESETS_FILE
+        self.auto_sync = auto_sync
+        self.auto_sync_timeout = auto_sync_timeout
+        self.lock_wait = lock_wait
+        self.lock_poll = lock_poll
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()  # one snapshot at a time
         self.jobs: list[Job] = []
@@ -161,6 +180,8 @@ class Console:
         self.threads.append(threading.Thread(target=self._watch, name="watch", daemon=True))
         if self.snapshot_links:
             self.threads.append(threading.Thread(target=self._snapshots, name="snapshots", daemon=True))
+        if auto_sync > 0:
+            self.threads.append(threading.Thread(target=self._auto, name="auto-sync", daemon=True))
 
     def start(self) -> None:
         self.refresh()
@@ -347,8 +368,46 @@ class Console:
                     job.state, job.error, job.ended_at = "failed", f"the console couldn't run it: {e}", now_iso()
             with self.lock:
                 self.running[channel] = None
+                if job.auto:  # the page shows only the latest automatic sync of each agent
+                    self.jobs = [j for j in self.jobs if j is job or not (j.auto and j.agent == job.agent)]
                 self.lock.notify_all()
             self.refresh()
+
+    def _time_out(self, job: Job) -> None:
+        """Stops an automatic sync that has run too long: Ctrl-C first, then a forced stop a few seconds later.
+        A sync that hangs (Telegram's session stuck reconnecting, say) would otherwise hold its channel forever."""
+        with self.lock:
+            if job.proc is None or job.stopping:
+                return
+            job.timed_out = job.stopping = True
+            proc = job.proc
+        signal_job(proc, signal.SIGINT)
+        try:
+            proc.wait(10)
+        except subprocess.TimeoutExpired:
+            signal_job(proc, signal.SIGTERM, group=True)
+
+    def syncable(self) -> list[Agent]:
+        """The agents a sync records anything for: every sendable one but WhatsApp's, which is recorded all the time."""
+        return [a for a in self.agents.values() if a.channel != "whatsapp"]
+
+    def _auto(self) -> None:
+        """Queues a sync for each idle channel every `auto_sync` seconds, so replies that arrive after a
+        job stopped listening are recorded without anyone pressing Sync. A busy channel is left alone."""
+        while not self.closing:
+            deadline = time.monotonic() + self.auto_sync
+            while time.monotonic() < deadline:
+                if self.closing:
+                    return
+                time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+            with self.lock:
+                if self.closing:
+                    return
+                for agent in self.syncable():
+                    if self.running[agent.channel] is None and not self._next(agent.channel):
+                        self._add(Job(id=self._new_id(agent.name), kind="sync", agent=agent.name,
+                                      channel=agent.channel, auto=True))
+                self.lock.notify_all()
 
     def command(self, job: Job, prompt: Path) -> list[str]:
         """What follows `bench` for a job, as you'd type it."""
@@ -360,7 +419,7 @@ class Console:
                 *(["--step", job.step] if job.step else []), *(["--cell", job.cell] if job.cell else [])]
 
     def _execute(self, job: Job) -> None:
-        folder = self.jobs_dir / job.id
+        folder = self.jobs_dir / (f"autosync-{job.agent}" if job.auto else job.id)
         folder.mkdir(parents=True, exist_ok=True)
         os.chmod(folder, 0o700)  # it holds what you sent
         prompt = folder / "prompt.txt"
@@ -368,30 +427,53 @@ class Console:
             prompt.write_text(job.text)  # sent exactly as typed, with no shell quoting in between
             os.chmod(prompt, 0o600)
         args = self.command(job, prompt)
+        deadline = time.monotonic() + self.lock_wait
         with (folder / "output.log").open("w") as log:
             os.chmod(log.name, 0o600)
-            log.write("$ bench " + shlex.join(args) + "\n")
-            with self.lock:
-                if job.stopping:  # stopped between being picked and starting
-                    job.state, job.ended_at = "cancelled", now_iso()
-                    return
-                job.proc = subprocess.Popen(
-                    [self.python, *(["-c", DRY_RUN] if self.dry_run else ["-m", "bench.cli"]), *args], cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1, start_new_session=True,  # the console, not your terminal's Ctrl-C, stops it
-                    env={**os.environ, "PYTHONUNBUFFERED": "1"})
-            for line in job.proc.stdout:
-                log.write(line)
+            while True:
+                log.write("$ bench " + shlex.join(args) + "\n")
+                with self.lock:
+                    if job.stopping:  # stopped between being picked and starting
+                        job.state, job.ended_at = "cancelled", now_iso()
+                        return
+                    job.proc = subprocess.Popen(
+                        [self.python, *(["-c", DRY_RUN] if self.dry_run else ["-m", "bench.cli"]), *args], cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                        text=True, bufsize=1, start_new_session=True,  # the console, not your terminal's Ctrl-C, stops it
+                        env={**os.environ, "PYTHONUNBUFFERED": "1"})
+                watchdog = threading.Timer(self.auto_sync_timeout, self._time_out, args=(job,)) if job.auto else None
+                if watchdog:
+                    watchdog.daemon = True
+                    watchdog.start()
+                for line in job.proc.stdout:
+                    log.write(line)
+                    log.flush()
+                    with self.lock:
+                        job.log.append(line.rstrip("\n"))
+                        if self.dry_run and line.startswith(DRY_SENT) and not job.sent_at:
+                            job.sent_at = now_iso()
+                            self._preempt()
+                code = job.proc.wait()
+                if watchdog:
+                    watchdog.cancel()
+                # A bench command started outside the console (a terminal, a script) holds the channel: a message or
+                # run waits for it rather than failing, so what you typed still goes out. Automatic syncs just skip.
+                held = code != 0 and not job.auto and not job.stopping and not job.sent_at \
+                    and any(LOCK_HELD in l for l in job.log) and time.monotonic() < deadline
+                if not held:
+                    break
+                note = f"console: {job.channel.capitalize()} is in use by another bench command; trying again in {self.lock_poll:g}s"
+                log.write(note + "\n")
                 log.flush()
                 with self.lock:
-                    job.log.append(line.rstrip("\n"))
-                    if self.dry_run and line.startswith(DRY_SENT) and not job.sent_at:
-                        job.sent_at = now_iso()
-                        self._preempt()
-            code = job.proc.wait()
+                    job.log.append(note)
+                    job.proc = None
+                    self.lock.wait(self.lock_poll)  # a stop request wakes it
         with self.lock:
             job.exit_code, job.ended_at, job.proc = code, now_iso(), None
             if job.preempted:
                 job.state = "done"
+            elif job.timed_out:
+                job.state, job.error = "failed", f"stopped after {self.auto_sync_timeout:g}s: the sync hung, so its channel was freed"
             elif job.stopping:
                 job.state = "stopped"
             elif code == 0:
@@ -617,9 +699,10 @@ class Handler(BaseHTTPRequestHandler):
         return self._error(404, "not found")
 
 
-def serve(port: int = PORT, *, open_browser: bool = False, dry_run: bool = False) -> None:
+def serve(port: int = PORT, *, open_browser: bool = False, dry_run: bool = False,
+          auto_sync: float = AUTO_SYNC_SECONDS) -> None:
     """Runs the console until Ctrl-C."""
-    console = Console(dry_run=dry_run)
+    console = Console(dry_run=dry_run, auto_sync=auto_sync)
     token = load_token()
     try:
         server = Server(("127.0.0.1", port), console, token)
@@ -631,6 +714,8 @@ def serve(port: int = PORT, *, open_browser: bool = False, dry_run: bool = False
     print(f"The console is at {url}\n"
           + ("Dry run: messages typed into it aren't sent anywhere.\n" if dry_run else "")
           + ("It saves the page behind every link in an agent's reply into that agent's run.\n" if console.snapshot_links else "")
+          + (f"Idle channels are synced every {auto_sync:g}s, so late replies show up by themselves.\n" if auto_sync > 0
+             else "Automatic sync is off: press Sync to record late replies.\n")
           + "Leave this running while you use it. Ctrl-C stops it.", flush=True)
     if open_browser:
         subprocess.run(["open", url])

@@ -411,7 +411,9 @@ def cmd_dashboard(args: argparse.Namespace) -> None:
 
 def cmd_console(args: argparse.Namespace) -> None:
     from bench import console
-    console.serve(args.port, open_browser=args.open, dry_run=args.dry_run)
+    if args.auto_sync < 0:
+        raise SystemExit("bench: --auto-sync must be 0 or more seconds")
+    console.serve(args.port, open_browser=args.open, dry_run=args.dry_run, auto_sync=args.auto_sync)
 
 
 def cmd_telegram_login(args: argparse.Namespace) -> None:
@@ -595,6 +597,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8787, help="the port on 127.0.0.1 to serve it on (default 8787)")
     p.add_argument("--open", action="store_true", help="open it in your browser")
     p.add_argument("--dry-run", action="store_true", help="show what would be sent, and send nothing")
+    p.add_argument("--auto-sync", type=float, default=60, metavar="SECONDS",
+                   help="sync each idle channel this often, so late replies are recorded by themselves (default 60; 0 turns it off)")
     p.set_defaults(func=cmd_console)
     sub.add_parser("telegram-login").set_defaults(func=cmd_telegram_login)
     sub.add_parser("telegram-logout").set_defaults(func=cmd_telegram_logout)

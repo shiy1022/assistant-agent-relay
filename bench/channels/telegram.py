@@ -384,6 +384,7 @@ class TelegramChannel:
         tracked = self.state[agent.name]["tracked"]
         for key in [k for k, t in tracked.items() if t["event"].get("date", "") < cutoff]:
             del tracked[key]
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
         self.state_path.write_text(json.dumps(self.state))
 
     # MARK: Live updates

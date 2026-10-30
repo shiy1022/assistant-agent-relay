@@ -9,7 +9,7 @@ arrived while nothing was running show up after `bench sync`. Context resets
 import json
 import os
 import statistics
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from bench import resets
@@ -21,10 +21,11 @@ OUT = ROOT / "data" / "dashboard.html"  # data/ is never committed
 RUNS_DIR = ROOT / "runs"
 TEMPLATE = Path(__file__).with_name("dashboard.html")
 TYPING_GAP_SECONDS = 15  # typing events closer together than this are one stretch of typing
+OFF_TASK_SECONDS = 30 * 60  # an agent's messages this soon after a message you sent outside a run are replies to it
 
 # Message fields the page shows as recorded.
 KEPT = ("date_delivered", "date_read", "date_played", "date_edited", "date_deleted", "date_retracted",
-        "read", "rich", "rich_media", "reactions", "buttons", "link_preview", "service")
+        "read", "rich", "rich_media", "reactions", "buttons", "link_preview", "service", "card")
 
 
 def parse(iso: str) -> datetime:
@@ -93,7 +94,8 @@ def typing_items(events: list[dict]) -> list[dict]:
 
 
 def run_items(runs_dir: Path) -> list[dict]:
-    """Where each run began, from runs/…/run.json: its started_at, or the time its folder is named after (local time)."""
+    """Where each run began, from runs/…/run.json: its started_at, or the time its folder is named after (local time).
+    Each carries the ids of the messages the run recorded, and when it ended, so the page can tell task traffic apart."""
     items = []
     for path in sorted(runs_dir.glob("*/run.json")):
         try:
@@ -102,9 +104,49 @@ def run_items(runs_dir: Path) -> list[dict]:
                 datetime.strptime(path.parent.name[:15], "%Y%m%d-%H%M%S").astimezone()
         except (ValueError, OSError):
             continue
+        ids = {str(m) for m in (info.get("messages") or []) if m is not None}
+        if info.get("prompt_message"):
+            ids.add(str(info["prompt_message"]))
         items.append({"type": "run", "agent": info.get("agent"), "date": iso(started), "name": path.parent.name,
+                      "ended": info.get("ended_at"), "message_ids": sorted(ids),
                       **{k: info[k] for k in ("task", "step", "cell") if info.get(k)}})
     return items
+
+
+def mark_benchmark(messages: list[dict], runs: list[dict]) -> None:
+    """Sets `benchmark` on each message: whether it belongs to the benchmark rather than to something else you
+    did with the agent. A message a run recorded, or sent while a run was going, is benchmark traffic. A message
+    you sent outside any run is not, and neither are the agent's messages in the half hour after it (its replies).
+    What the agent sends on its own, with nothing from you before it, is benchmark traffic: that's proactivity."""
+    in_runs = {i for r in runs for i in r.get("message_ids", [])}
+    windows = []
+    for r in runs:
+        try:
+            windows.append((parse(r["date"]), parse(r["ended"]) if r.get("ended") else None))
+        except (ValueError, TypeError):
+            pass
+
+    def during_run(at: datetime) -> bool:
+        # A channel may stamp the prompt a moment before the run wrote its start (whole seconds vs milliseconds).
+        grace = timedelta(seconds=5)
+        return any(start - grace <= at and (end is None or at <= end) for start, end in windows)
+
+    off_task_until = None
+    for m in sorted(messages, key=lambda m: m["date"]):
+        at = parse(m["date"])
+        # A run lists messages by their conversation id (`whatsapp:muse:…`), which is the item's guid; the
+        # item's id is the channel's own (bare) id. Either may match.
+        if str(m.get("id")) in in_runs or str(m.get("guid")) in in_runs or during_run(at):
+            m["benchmark"] = True
+            off_task_until = None
+        elif m["from_me"]:
+            m["benchmark"] = False
+            off_task_until = at + timedelta(seconds=OFF_TASK_SECONDS)
+        elif off_task_until and at <= off_task_until:
+            m["benchmark"] = False
+            off_task_until = at + timedelta(seconds=OFF_TASK_SECONDS)  # a reply keeps the exchange going
+        else:
+            m["benchmark"] = True
 
 
 def reset_items(agent_resets: list[dict], messages: list[dict]) -> list[dict]:
@@ -215,8 +257,9 @@ def snapshot(agents: dict[str, Agent] | None = None, inboxes: dict[str, Path] | 
         if channel not in inboxes:
             continue
         mine = [e for e in events[channel] if e.get("agent") == name]
-        items = timeline(message_items(mine, inboxes[channel]), typing_items(mine),
-                         [r for r in runs if r["agent"] == name],
+        messages, agent_runs = message_items(mine, inboxes[channel]), [r for r in runs if r["agent"] == name]
+        mark_benchmark(messages, agent_runs)
+        items = timeline(messages, typing_items(mine), agent_runs,
                          [r for r in all_resets.get(name, []) if r["channel"] == channel])
         if channel == "slack":
             items = by_thread(items)

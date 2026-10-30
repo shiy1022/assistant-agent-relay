@@ -5,7 +5,10 @@
     bench run-save RUN_DIR --again     saves them again, say after the agent updated the page
 
 Only links that match one of the agent's PAGES are ever fetched. Anything else
-an agent sends, like a referral or invite link, is left alone.
+an agent sends, like a referral or invite link, is left alone. A page the
+channel already saved a copy of, like a Hark Page (behind Hark's sign-in, so
+the Hark channel saves it as the message's attachment), is copied from there
+instead of being fetched.
 
 Each page is saved twice in deliverables/: <name>.html, the page as served, and
 <name>.txt, its text with each link's address after it. Both are listed in
@@ -14,6 +17,8 @@ were saved (saved_at). A page that couldn't be saved is listed in run.json's
 unsaved_deliverables, with why, until a later run-save saves it.
 """
 
+import base64
+import json
 import re
 import urllib.error
 import urllib.parse
@@ -21,6 +26,7 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from html import unescape as html_unescape
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -40,14 +46,16 @@ class DeliverableError(Exception):
 class Page:
     """A kind of page an agent links to as its answer."""
 
-    link: re.Pattern  # the whole link as the agent sends it; its groups name the page
-    fetch: str        # the address to fetch, from the link's groups
-    name: str         # the files it's saved as in deliverables/, from the link's groups
+    link: re.Pattern   # the whole link as the agent sends it; its groups name the page
+    fetch: str | None  # the address to fetch, from the link's groups; None if only the channel's saved copy will do
+    name: str          # the files it's saved as in deliverables/, from the link's groups
 
-    def match(self, link: str) -> tuple[str, str] | None:
+    def match(self, link: str) -> tuple[str | None, str] | None:
         """(the address to fetch, the files' name) if `link` is one of these pages."""
         m = self.link.fullmatch(link)
-        return (self.fetch.format(**m.groupdict()), self.name.format(**m.groupdict())) if m else None
+        if not m:
+            return None
+        return (self.fetch.format(**m.groupdict()) if self.fetch else None, self.name.format(**m.groupdict()))
 
 
 PAGES: dict[str, list[Page]] = {
@@ -56,11 +64,15 @@ PAGES: dict[str, list[Page]] = {
     # itself, one HTML file with its fonts and images inside.
     "wajo": [Page(re.compile(rf"https://wajo\.ai/d/(?P<id>{UUID})/?(?:[?#].*)?"),
                   "https://wajo.ai/api/d/{id}", "wajo-{id:.8}")],
-    # Hark's Pages live on hark.com behind its sign-in, so they'd need fetching
-    # through the dedicated Chrome (bench.channels.chrome), as the channel reads it.
+    # Hark's Pages live on hark.com behind its sign-in, so they're never fetched
+    # from here: the Hark channel saves a copy of each as the message's attachment
+    # (bench.channels.hark), and that copy is what goes into deliverables/.
+    "hark": [Page(re.compile(rf"https://hark\.com/site/(?P<id>{UUID})/?(?:[?#].*)?"), None, "hark-{id:.8}")],
 }
 
 Fetch = Callable[[str], str]  # an address → the page's HTML; raises DeliverableError
+FetchBytes = Callable[[str], tuple[bytes, str]]  # an address → (the file, its media type); raises DeliverableError
+MAX_ASSET = 5_000_000
 
 
 class SameSite(urllib.request.HTTPRedirectHandler):
@@ -90,15 +102,100 @@ def http_get(url: str) -> str:
         raise DeliverableError(f"couldn't fetch {url}: {getattr(e, 'reason', e)}") from None
 
 
-def pages(agent: str, links: list[str]) -> list[tuple[str, str, str]]:
-    """(link, address to fetch, name) for each of `links` that's one of the agent's PAGES, once per page."""
-    found: dict[str, tuple[str, str, str]] = {}
+def read_copy(path: Path) -> str:
+    try:
+        return path.read_text(errors="replace")
+    except OSError as e:
+        raise DeliverableError(f"couldn't read the saved copy {path}: {e.strerror or e}") from None
+
+
+def http_get_bytes(url: str) -> tuple[bytes, str]:
+    """A page's image, stylesheet or font at `url`, as (bytes, media type), without cookies."""
+    # Google Fonts hands out woff2 only to a browser-like client; anything else gets bigger, older formats.
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                                                   "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"})
+    try:
+        with urllib.request.build_opener(SameSite).open(request, timeout=TIMEOUT) as r:
+            body = r.read(MAX_ASSET + 1)
+            if len(body) > MAX_ASSET:
+                raise DeliverableError(f"{url} is over {MAX_ASSET // 1_000_000} MB")
+            return body, r.headers.get_content_type()
+    except urllib.error.HTTPError as e:
+        raise DeliverableError(f"{url} answered HTTP {e.code} {e.reason}") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as e:
+        raise DeliverableError(f"couldn't fetch {url}: {getattr(e, 'reason', e)}") from None
+
+
+def data_uri(body: bytes, media_type: str) -> str:
+    return f"data:{media_type};base64,{base64.b64encode(body).decode()}"
+
+
+def freeze(html: str, fetch: FetchBytes | None = None) -> tuple[str, list[str]]:
+    """The page with its remote images and web fonts embedded, so it opens anywhere, offline, as it was.
+
+    Images (<img src=https://…>) become data: URIs. A stylesheet from fonts.googleapis.com is
+    inlined with its font files embedded. Links to other sites are left as links. Only the
+    files the page itself shows are fetched. Returns the page and what couldn't be fetched.
+    """
+    fetch = fetch or http_get_bytes
+    missing: list[str] = []
+
+    def embedded(url: str) -> str | None:
+        try:
+            return data_uri(*fetch(html_unescape(url)))
+        except DeliverableError as e:
+            missing.append(str(e))
+            return None
+
+    def image(m: re.Match) -> str:
+        data = embedded(m.group(2))
+        return f"{m.group(1)}{data}{m.group(3)}" if data else m.group(0)
+
+    def stylesheet(m: re.Match) -> str:
+        url = html_unescape(m.group(1))
+        try:
+            css = fetch(url)[0].decode("utf-8", errors="replace")
+        except DeliverableError as e:
+            missing.append(str(e))
+            return m.group(0)
+        css = re.sub(r"url\((https://fonts\.gstatic\.com/[^)\s]+)\)",
+                     lambda f: f"url({embedded(f.group(1)) or f.group(1)})", css)
+        return f"<style>{css}</style>"
+
+    html = re.sub(r'(<img\b[^>]*\bsrc=")(https?://[^"]+)(")', image, html)
+    html = re.sub(r"(<img\b[^>]*\bsrc=')(https?://[^']+)(')", image, html)
+    html = re.sub(r'<link\b[^>]*\brel="stylesheet"[^>]*\bhref="(https://fonts\.googleapis\.com/[^"]+)"[^>]*>', stylesheet, html)
+    return html, missing
+
+
+def pages(agent: str, links: list[str]) -> list[tuple[str, str | None, str]]:
+    """(link, address to fetch or None, name) for each of `links` that's one of the agent's PAGES, once per page."""
+    found: dict[str, tuple[str, str | None, str]] = {}
     for link in links:
         for page in PAGES.get(agent, []):
             if hit := page.match(link):
-                found.setdefault(hit[0], (link, *hit))
+                found.setdefault(hit[1], (link, *hit))
                 break
     return list(found.values())
+
+
+def saved_copies(run_dir: Path) -> dict[str, Path]:
+    """The pages the channel already saved, by the link they were sent with, from the run's transcript:
+    an HTML attachment of a message stands for the page link in that same message, in order."""
+    transcript = run_dir / "transcript.jsonl"
+    if not transcript.exists():
+        return {}
+    copies: dict[str, Path] = {}
+    agent = None
+    for line in transcript.read_text().splitlines():
+        if not line.strip():
+            continue
+        m = json.loads(line)
+        agent = agent or m.get("agent")
+        html = [Path(a["path"]) for a in m.get("attachments") or [] if a.get("path") and a.get("mime_type") == "text/html"]
+        for (link, _, _), path in zip(pages(agent, m.get("links") or []), html):
+            copies.setdefault(link, path)
+    return copies
 
 
 def save(run_dir: Path, *, fetch: Fetch | None = None, again: bool = False,
@@ -113,11 +210,18 @@ def save(run_dir: Path, *, fetch: Fetch | None = None, again: bool = False,
     if not found:
         return [], []
     saved, unsaved = [], []
+    copies = saved_copies(run_dir)
     for link, url, name in found:
         if link in listed and not again:
             continue
         try:
-            html = fetch(url)
+            if link in copies:
+                html = read_copy(copies[link])
+            elif url is None:
+                raise DeliverableError(f"{link} needs Hark's sign-in, and the Hark channel hasn't saved a copy of it yet. "
+                                       "Record it first: uv run bench sync hark")
+            else:
+                html = fetch(url)
         except DeliverableError as e:
             unsaved.append({"source": link, "error": str(e)})
             continue

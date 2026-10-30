@@ -160,6 +160,80 @@ def test_failures_say_what_bench_said(make):
     assert (job.state, job.error, job.exit_code) == ("failed", "the agent said no", 1)
 
 
+def test_a_message_waits_for_a_bench_command_started_outside_the_console(make, monkeypatch):
+    # The first try finds the channel's lock held by a command the console didn't start; the next try gets through.
+    busy = FAKE.replace('print("dry run: sent", flush=True)', """prompt = args[args.index("--file") + 1]
+import os
+if "--busy-once" in open(prompt).read() and not os.path.exists(prompt + ".tried"):
+    open(prompt + ".tried", "w").close()
+    print("bench: another bench command is using Slack; wait for it to finish", flush=True)
+    sys.exit(1)
+print("dry run: sent", flush=True)""")
+    monkeypatch.setattr(console, "DRY_RUN", busy)
+    c = make(lock_poll=0.2)
+    [job] = c.submit({"agents": ["dots"], "text": "--busy-once hello", "listen": 0})
+    wait_for(finished(job))
+    assert (job.state, job.exit_code, job.error) == ("done", 0, None)
+    assert any("in use by another bench command; trying again" in l for l in job.log)
+    assert sum(l.startswith("$ bench") for l in (c.jobs_dir / job.id / "output.log").read_text().splitlines()) == 2
+
+
+def test_a_message_gives_up_waiting_after_lock_wait(make, monkeypatch):
+    always_busy = FAKE.replace('print("dry run: sent", flush=True)',
+                               'print("bench: another bench command is using Slack; wait for it to finish", flush=True); sys.exit(1)')
+    monkeypatch.setattr(console, "DRY_RUN", always_busy)
+    c = make(lock_poll=0.1, lock_wait=0.5)
+    [job] = c.submit({"agents": ["dots"], "text": "hello", "listen": 0})
+    wait_for(finished(job))
+    assert job.state == "failed" and "another bench command is using Slack" in job.error
+
+
+def test_idle_channels_are_synced_by_themselves_but_never_whatsapp_or_a_busy_one(make):
+    c = make(auto_sync=0.3)
+    wait_for(lambda: {j.agent for j in c.jobs if j.auto and j.state == "done"} >= {"wajo", "dots"}, 10)
+    assert not any(j.agent in ("muse", "instinct") for j in c.jobs)  # bench-whatsapp records those all the time
+    assert all(j.kind == "sync" and j.channel in ("telegram", "slack") for j in c.jobs if j.auto)
+    time.sleep(1.5)  # several more rounds
+    with c.lock:
+        auto = [j for j in c.jobs if j.auto and j.state == "done"]
+        assert len([j for j in auto if j.agent == "wajo"]) == 1  # only the latest one per agent is kept
+        assert len([j for j in auto if j.agent == "dots"]) == 1
+    assert (c.jobs_dir / "autosync-wajo" / "output.log").exists()
+    assert not any(p.name.endswith("-wajo-" + p.name.split("-")[-1]) and p.name.startswith("2")
+                   for p in c.jobs_dir.iterdir())  # no folder per automatic sync
+    run = c.submit({"agents": ["wajo"], "text": "hi", "mode": "run", "task": "Travel"})[0]
+    wait_for(lambda: run.state == "running")
+    time.sleep(1.2)
+    with c.lock:
+        assert not [j for j in c.jobs if j.auto and j.channel == "telegram" and j.state == "queued"]  # waits, never queues behind a run
+        assert any(j.auto and j.channel == "slack" and j.started_at and parse_iso(j.started_at) > parse_iso(run.started_at)
+                   for j in c.jobs)  # the other channel keeps syncing
+    c.stop(run.id)
+
+
+def test_auto_sync_can_be_turned_off(make):
+    c = make(auto_sync=0)
+    time.sleep(0.8)
+    assert not any(j.auto for j in c.jobs)
+
+
+def parse_iso(s):
+    return console.parse(s)
+
+
+def test_an_automatic_sync_that_hangs_is_stopped_and_frees_its_channel(make, monkeypatch):
+    # The fake bench "listens" for --listen seconds; a sync runs 0.2s. Make syncs hang instead.
+    monkeypatch.setattr(console, "DRY_RUN", FAKE.replace('else 0.2)', 'else (60 if args[0] == "sync" else 0.2))'))
+    c = make(auto_sync=0.3, auto_sync_timeout=1)
+    wait_for(lambda: any(j.auto and j.state == "failed" for j in c.jobs), seconds=15)
+    hung = next(j for j in c.jobs if j.auto and j.state == "failed")
+    assert hung.timed_out and "hung" in hung.error
+    assert c.running[hung.channel] is None or c.running[hung.channel] is not hung  # the lane moved on
+    job = c.submit({"agents": ["wajo"], "text": "after the hang", "listen": 0})[0]
+    wait_for(finished(job), seconds=15)
+    assert job.state == "done"  # a message still gets through on that channel
+
+
 def test_a_job_is_sent_once_its_message_is_recorded(tmp_path):
     inbox = tmp_path / "tg" / "messages.jsonl"
     inbox.parent.mkdir()

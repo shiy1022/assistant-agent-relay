@@ -1,17 +1,17 @@
-# Dots on Slack (PJTTY)
+# Dots on Slack
 
 Back to [all connections](README.md).
 
-Only the **PJTTY** workspace is ever used. Every command first checks that the token belongs to PJTTY, and to PJTTY's pinned team ID, and stops if it doesn't. Never point agent-runner at another workspace, and never "fix" a workspace error by changing the config.
+Only **one** Slack workspace is ever used: the one your dot is added to, named under `slack: workspace:` in `config/agents.yaml`. Testers aren't all in the same workspace, so each sets their own (the committed value, PJTTY, is Jassmin's; Yueheng's dot is there too). Every command first checks that the token belongs to that workspace, and to its pinned team ID, and stops if it doesn't. Once set, never point agent-runner at a second workspace, and never "fix" a workspace error by changing the config: fix the token instead.
 
 ## How it's connected
 
 | Link | What it is | Where it lives |
 |---|---|---|
-| **Ours: reading** | Slack's Web API, as you, with the User OAuth Token (`xoxp-…`) of the **agent-runner** Slack app installed in PJTTY. | Keychain `agent-runner.slack.user_token`. The app's manifest: [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml). |
-| **Ours: sending** | Typed into app.slack.com in the [dedicated Chrome](dedicated-chrome.md), signed in to PJTTY as you (`slack: send_via: web`). The dot ignores messages sent through the API, because Slack marks them with the app's ID. | Slack's sign-in, in the Chrome profile |
-| **Pins** | PJTTY's team ID (`T0CARQF460P`), and the DM with the dot, set the first time. | `~/Library/Application Support/agent-runner/slack/pins.json` |
-| **Theirs** | The dot, **yschore-dot** (member `U0CBGVDR955`), added to PJTTY from the ChatGPT desktop app. It's not the separate "ChatGPT" app (`U0CC083J1PT`). It replies in a thread under each message, about 10 s later. | `dots: handle:` in `config/agents.yaml` |
+| **Ours: reading** | Slack's Web API, as you, with the User OAuth Token (`xoxp-…`) of the **agent-runner** Slack app installed in your workspace. | Keychain `agent-runner.slack.user_token`. The app's manifest: [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml). |
+| **Ours: sending** | Typed into app.slack.com in the [dedicated Chrome](dedicated-chrome.md), signed in to your workspace as you (`slack: send_via: web`). The dot ignores messages sent through the API, because Slack marks them with the app's ID. | Slack's sign-in, in the Chrome profile |
+| **Pins** | Your workspace's team ID (PJTTY's is `T0CARQF460P`), and the DM with the dot, set the first time. | `~/Library/Application Support/agent-runner/slack/pins.json` |
+| **Theirs** | **Your own dot**, added to your workspace from your ChatGPT desktop app. Each tester has their own (Jassmin's is yuting-deng-dot, `U0CD80586P2`; Yueheng's is yschore-dot, `U0CBGVDR955`), and a dot only answers its owner, so the handle in the repo is whoever committed it last and you must put yours in. It's not the separate "ChatGPT" app (`U0CC083J1PT`). It replies in a thread under each message, about 10 s later. | `dots: handle:` in `config/agents.yaml` |
 
 Slack keeps the whole DM on its servers, so nothing is lost while disconnected. The next `bench sync dots` records what arrived in the meantime.
 
@@ -20,17 +20,17 @@ Slack keeps the whole DM on its servers, so nothing is lost while disconnected. 
 Do [Before you start](README.md#before-you-start) first. You need:
 - ChatGPT Pro or Business Premium, with a dot created. There's one dot per plan.
 - The ChatGPT desktop app on the Mac.
-- A Slack workspace where you're a member and can install apps. Ours is **PJTTY**, and it's the only one agent-runner may use. On a Business or Enterprise Slack, an admin may have to approve both the dot and the runner's app.
+- A Slack workspace where you're a member and can install apps. Any will do; it becomes the only one agent-runner may use. Jassmin and Yueheng use **PJTTY**. On a Business or Enterprise Slack, an admin may have to approve both the dot and the runner's app.
 - About 20 minutes.
 
 ### Connect the dot to Slack
 
-1. In the ChatGPT desktop app, open the dot's profile → **Add** → Slack, and pick PJTTY.
+1. In the ChatGPT desktop app, open the dot's profile → **Add** → Slack, and pick your workspace.
 2. In Slack, DM the dot yourself and check that it answers. It replies in a thread under your message, about 10 s later.
 
 ### Create the runner's Slack app and token
 
-3. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**, pick **PJTTY**, and paste [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml). It asks for user token scopes only (`chat:write`, `im:history`, `im:write`, `users:read`, and optionally `files:read`), so the app acts as you and has no bot of its own.
+3. Go to [api.slack.com/apps](https://api.slack.com/apps) → **Create New App** → **From a manifest**, pick **the same workspace**, and paste [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml). It asks for user token scopes only (`chat:write`, `im:history`, `im:write`, `users:read`, and optionally `files:read`), so the app acts as you and has no bot of its own.
 4. Open **OAuth & Permissions**, click **Install to Workspace**, and allow it. Leave token rotation off, because a rotating token expires.
 5. Copy the **User OAuth Token** (`xoxp-…`) from the same page. Don't copy a bot token. A dot only answers its owner, so the app has to act as you.
 6. Store the token in the Keychain. The command asks for it, so enter it at the prompt, and don't paste it into chat:
@@ -41,12 +41,12 @@ Do [Before you start](README.md#before-you-start) first. You need:
 
 ### Tell agent-runner about the workspace and the dot
 
-7. In Slack, open the dot's profile → ⋮ → **Copy member ID**. Make sure it's the dot (ours is yschore-dot), not the separate "ChatGPT" app.
-8. In `config/agents.yaml`, name the workspace and set sending to the web client, at the top level:
+7. In Slack, open **your own dot's** profile → ⋮ → **Copy member ID**. It has to be the dot you created, not another tester's: a dot only answers its owner, so someone else's dot (the one already in the repo, say) will never reply to you. Make sure it's the dot (named like `<you>-dot`), not the separate "ChatGPT" app.
+8. In `config/agents.yaml`, name your workspace (as Slack shows it, or its address like `pjtty` for pjtty.slack.com) and set sending to the web client, at the top level:
 
    ```yaml
    slack:
-     workspace: PJTTY
+     workspace: PJTTY       # YOUR workspace, not the one already in the file
      send_via: web    # the dot ignores messages sent through Slack's API
    ```
 
@@ -55,12 +55,12 @@ Do [Before you start](README.md#before-you-start) first. You need:
    ```yaml
    dots:
      channel: slack
-     handle: "U0CBGVDR955"    # the dot's member ID
+     handle: "U0…"            # YOUR dot's member ID, not the one already in the file
      quiet_period_seconds: 120
      max_wait_seconds: 1800
    ```
 
-9. Pin the workspace and the DM. This reads through the API only and sends nothing. The first run checks that the token is for PJTTY, pins PJTTY's team ID, and opens the DM with the dot:
+9. Pin the workspace and the DM. This reads through the API only and sends nothing. The first run checks that the token is for your workspace, pins its team ID, and opens the DM with the dot:
 
    ```bash
    uv run bench sync dots
@@ -75,7 +75,7 @@ Do [Before you start](README.md#before-you-start) first. You need:
     uv run bench slack-login
     ```
 
-    It opens PJTTY's sign-in page in the dedicated Chrome and waits up to 10 minutes while you sign in. When Slack offers its desktop app, choose to use Slack in your browser. It ends with `Signed in to PJTTY in the dedicated Chrome.`
+    It opens your workspace's sign-in page in the dedicated Chrome and waits up to 10 minutes while you sign in. When Slack offers its desktop app, choose to use Slack in your browser. It ends with `Signed in to <your workspace> in the dedicated Chrome.`
 
 12. Check everything, without sending anything:
 
@@ -100,11 +100,11 @@ uv run bench slack-status
 Healthy:
 
 ```
-Slack: PJTTY (https://pjtty.slack.com/), team T0CARQF460P, signed in as <you> (U…)
+Slack: <your workspace> (https://<it>.slack.com/), team T…, signed in as <you> (U…)
 Token scopes: identify, im:history, files:read, users:read, chat:write, im:write
 Sending: typed into the web client
-dots: U0CBGVDR955 → yschoredot (U0CBGVDR955, bot)
-  web client: signed in; yschore-dot (DM) - PJTTY - Slack is open in the dedicated Chrome
+dots: U0… → <your dot> (U0…, bot)
+  web client: signed in; <your dot> (DM) - <your workspace> - Slack is open in the dedicated Chrome
 ```
 
 It opens the DM in the dedicated Chrome, but types nothing and records nothing.
@@ -118,8 +118,8 @@ It opens the DM in the dedicated Chrome, but types nothing and records nothing.
 | `missing the … scope` or `missing these user token scopes` | The app lost a scope. | Add it under OAuth & Permissions → **User Token Scopes** (compare with the manifest), then [get a new token](#get-a-new-token). |
 | `no Slack token found` | The Keychain entry is gone. | [Get a new token](#get-a-new-token) (just step 4 if you still have the token) |
 | `the stored Slack token isn't a user token (xoxp-…)` | The bot token was stored. | Store the **User** OAuth Token instead. |
-| `the Slack token is for …, not PJTTY` | The token is from another workspace. | Make sure you copy the token of the app installed **in PJTTY**. |
-| `… but PJTTY was pinned as team T…` | The token is for a different workspace that's also named PJTTY. | Same as above. Delete `pins.json` only if PJTTY itself was really recreated. |
+| `the Slack token is for …, not <workspace>` | The token is from a workspace other than the one in `slack: workspace:`. | Make sure you copy the token of the app installed **in your workspace**, and that `slack: workspace:` names yours (not PJTTY, unless your dot is there). |
+| `… but <workspace> was pinned as team T…` | The token is for a different workspace with the same name. | Same as above. Delete `pins.json` only if your workspace itself was really recreated. |
 | `web client: NOT READY: the dedicated Chrome isn't running…` | Chrome isn't up. Slack commands don't start it. | [Start the dedicated Chrome](dedicated-chrome.md#start-it) |
 | `web client: NOT READY: Slack's message box didn't appear…` | Chrome is signed out of Slack. | [Sign Chrome back in](#sign-chrome-back-in-to-slack) |
 | `the message box already has a draft in it` | There's text in the dot's DM box. Slack syncs drafts, so it may be from your phone. | Delete the draft in that DM, on any device. |
@@ -132,7 +132,7 @@ It opens the DM in the dedicated Chrome, but types nothing and records nothing.
 
 ## Get a new token
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and open **agent-runner** in PJTTY. If it's gone: Create New App → From a manifest → pick **PJTTY** → paste [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml).
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and open **agent-runner** in your workspace. If it's gone: Create New App → From a manifest → pick **your workspace** → paste [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml).
 2. Under **OAuth & Permissions**, click **Install to Workspace** (or **Reinstall**) and allow it.
 3. Copy the **User OAuth Token** (`xoxp-…`), not a bot token.
 4. Store it. The command asks for it, so enter it at the prompt, and don't paste it into chat:
@@ -156,16 +156,18 @@ It opens the DM in the dedicated Chrome, but types nothing and records nothing.
    uv run bench slack-login
    ```
 
-   If Chrome is still signed in, it says so and stops. Otherwise it opens PJTTY's sign-in page there and waits up to 10 minutes while you sign in. When Slack offers its desktop app, choose to use Slack in your browser.
+   If Chrome is still signed in, it says so and stops. Otherwise it opens your workspace's sign-in page there and waits up to 10 minutes while you sign in. When Slack offers its desktop app, choose to use Slack in your browser.
 3. `uv run bench slack-status` should end with `web client: signed in; …`.
 
 ## The dot's side
 
+If the dot never answers the runner but does answer when you DM it yourself, check that `dots: handle:` in `config/agents.yaml` is **your** dot's member ID. The repo ships with whichever tester's dot was committed last, and a dot only answers its owner. `uv run bench slack-status` shows which member the handle points at.
+
 If the dot doesn't answer even when you DM it yourself:
 
-1. In the ChatGPT desktop app, open the dot's profile → **Add** → Slack, and pick PJTTY.
+1. In the ChatGPT desktop app, open the dot's profile → **Add** → Slack, and pick your workspace.
 2. DM it in Slack yourself. It should answer in a thread within about 10 s.
-3. If it came back as a new Slack member (`slack-status` says `Slack has no member with that ID`), open its profile in Slack → ⋮ → **Copy member ID**. Make sure it's yschore-dot, not the "ChatGPT" app. Put the ID in `config/agents.yaml` under `dots: handle:`. A changed handle makes the next `uv run bench sync dots` pin the dot again and open the DM with the new member. Messages recorded from the old DM are kept.
+3. If it came back as a new Slack member (`slack-status` says `Slack has no member with that ID`), open its profile in Slack → ⋮ → **Copy member ID**. Make sure it's your own dot, not the "ChatGPT" app. Put the ID in `config/agents.yaml` under `dots: handle:`. A changed handle makes the next `uv run bench sync dots` pin the dot again and open the DM with the new member. Messages recorded from the old DM are kept.
 
 ## Keeping it connected
 
