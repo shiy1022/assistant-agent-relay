@@ -111,7 +111,7 @@ WhatsApp: linked, connected, offline; agents: muse
 
 Slack: PJTTY (https://pjtty.slack.com/), team T0CARQF460P, signed in as <you> (U…)
 …
-  web client: signed in; yschore-dot (DM) - PJTTY - Slack is open in the dedicated Chrome
+  web client: signed in; <your dot> (DM) - PJTTY - Slack is open in the dedicated Chrome
 
 Hark: signed in as <your Google email> (<id>)
 Main thread: <thread id> (idle)

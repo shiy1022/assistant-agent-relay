@@ -41,7 +41,7 @@ agents:
     handle: ""               # once you have access
   dots:
     channel: slack
-    handle: "U0CD80586P2"    # yuting-deng-dot in PJTTY, Jassmin's own dot (DM D0CC7BUKU2F). Was U0CBGVDR955 = yschore-dot, Yueheng's dot, which never answered Jassmin
+    handle: "U0CD80586P2"    # YOUR OWN dot's member ID. A dot only answers its owner, so someone else's dot never replies to you. This one is yuting-deng-dot (Jassmin's); replace it with yours (Slack → the dot's profile → ⋮ → Copy member ID)
     quiet_period_seconds: 120
     max_wait_seconds: 1800
   hark:

@@ -11,7 +11,7 @@ Only the **PJTTY** workspace is ever used. Every command first checks that the t
 | **Ours: reading** | Slack's Web API, as you, with the User OAuth Token (`xoxp-…`) of the **agent-runner** Slack app installed in PJTTY. | Keychain `agent-runner.slack.user_token`. The app's manifest: [config/slack-app-manifest.yaml](../../config/slack-app-manifest.yaml). |
 | **Ours: sending** | Typed into app.slack.com in the [dedicated Chrome](dedicated-chrome.md), signed in to PJTTY as you (`slack: send_via: web`). The dot ignores messages sent through the API, because Slack marks them with the app's ID. | Slack's sign-in, in the Chrome profile |
 | **Pins** | PJTTY's team ID (`T0CARQF460P`), and the DM with the dot, set the first time. | `~/Library/Application Support/agent-runner/slack/pins.json` |
-| **Theirs** | The dot, **yschore-dot** (member `U0CBGVDR955`), added to PJTTY from the ChatGPT desktop app. It's not the separate "ChatGPT" app (`U0CC083J1PT`). It replies in a thread under each message, about 10 s later. | `dots: handle:` in `config/agents.yaml` |
+| **Theirs** | **Your own dot**, added to PJTTY from your ChatGPT desktop app. Each tester has their own (Jassmin's is yuting-deng-dot, `U0CD80586P2`; Yueheng's is yschore-dot, `U0CBGVDR955`), and a dot only answers its owner, so the handle in the repo is whoever committed it last and you must put yours in. It's not the separate "ChatGPT" app (`U0CC083J1PT`). It replies in a thread under each message, about 10 s later. | `dots: handle:` in `config/agents.yaml` |
 
 Slack keeps the whole DM on its servers, so nothing is lost while disconnected. The next `bench sync dots` records what arrived in the meantime.
 
@@ -41,7 +41,7 @@ Do [Before you start](README.md#before-you-start) first. You need:
 
 ### Tell agent-runner about the workspace and the dot
 
-7. In Slack, open the dot's profile → ⋮ → **Copy member ID**. Make sure it's the dot (ours is yschore-dot), not the separate "ChatGPT" app.
+7. In Slack, open **your own dot's** profile → ⋮ → **Copy member ID**. It has to be the dot you created, not another tester's: a dot only answers its owner, so someone else's dot (the one already in the repo, say) will never reply to you. Make sure it's the dot (named like `<you>-dot`), not the separate "ChatGPT" app.
 8. In `config/agents.yaml`, name the workspace and set sending to the web client, at the top level:
 
    ```yaml
@@ -55,7 +55,7 @@ Do [Before you start](README.md#before-you-start) first. You need:
    ```yaml
    dots:
      channel: slack
-     handle: "U0CBGVDR955"    # the dot's member ID
+     handle: "U0…"            # YOUR dot's member ID, not the one already in the file
      quiet_period_seconds: 120
      max_wait_seconds: 1800
    ```
@@ -103,8 +103,8 @@ Healthy:
 Slack: PJTTY (https://pjtty.slack.com/), team T0CARQF460P, signed in as <you> (U…)
 Token scopes: identify, im:history, files:read, users:read, chat:write, im:write
 Sending: typed into the web client
-dots: U0CBGVDR955 → yschoredot (U0CBGVDR955, bot)
-  web client: signed in; yschore-dot (DM) - PJTTY - Slack is open in the dedicated Chrome
+dots: U0… → <your dot> (U0…, bot)
+  web client: signed in; <your dot> (DM) - PJTTY - Slack is open in the dedicated Chrome
 ```
 
 It opens the DM in the dedicated Chrome, but types nothing and records nothing.
@@ -161,11 +161,13 @@ It opens the DM in the dedicated Chrome, but types nothing and records nothing.
 
 ## The dot's side
 
+If the dot never answers the runner but does answer when you DM it yourself, check that `dots: handle:` in `config/agents.yaml` is **your** dot's member ID. The repo ships with whichever tester's dot was committed last, and a dot only answers its owner. `uv run bench slack-status` shows which member the handle points at.
+
 If the dot doesn't answer even when you DM it yourself:
 
 1. In the ChatGPT desktop app, open the dot's profile → **Add** → Slack, and pick PJTTY.
 2. DM it in Slack yourself. It should answer in a thread within about 10 s.
-3. If it came back as a new Slack member (`slack-status` says `Slack has no member with that ID`), open its profile in Slack → ⋮ → **Copy member ID**. Make sure it's yschore-dot, not the "ChatGPT" app. Put the ID in `config/agents.yaml` under `dots: handle:`. A changed handle makes the next `uv run bench sync dots` pin the dot again and open the DM with the new member. Messages recorded from the old DM are kept.
+3. If it came back as a new Slack member (`slack-status` says `Slack has no member with that ID`), open its profile in Slack → ⋮ → **Copy member ID**. Make sure it's your own dot, not the "ChatGPT" app. Put the ID in `config/agents.yaml` under `dots: handle:`. A changed handle makes the next `uv run bench sync dots` pin the dot again and open the DM with the new member. Messages recorded from the old DM are kept.
 
 ## Keeping it connected
 

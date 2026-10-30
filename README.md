@@ -59,7 +59,7 @@ Dots are reached through a DM in Slack, sent from your own Slack account through
    security add-generic-password -U -a "$USER" -s agent-runner.slack.user_token -w
    ```
 
-4. In Slack, open the dot's profile → ⋮ → Copy member ID, and put it in `config/agents.yaml` under `dots: handle:`.
+4. In Slack, open **your own** dot's profile → ⋮ → Copy member ID, and put it in `config/agents.yaml` under `dots: handle:`, replacing the ID that's there. A dot only answers its owner, so another tester's dot never replies to you.
 5. Sign in to PJTTY's Slack once in the dedicated Chrome (the agent-runner profile, started with `--remote-debugging-port=9222`; see `CHROME_COMMAND` in [bench/channels/slack_web.py](bench/channels/slack_web.py)):
 
    ```bash
