@@ -176,6 +176,22 @@ header.top .as-of { color: var(--muted); font-size: 13px; }
 .meta .warn { color: var(--danger); }
 .detail { display: none; }
 .show-details .detail { display: inline; }
+/* Hark's cards (an order summary, a table, a titled summary), drawn as hark.com does. The button is a label only. */
+.card { border: 1px solid var(--line, #333); border-radius: 12px; overflow: hidden; margin: 4px 0 6px; font-size: 13px; }
+.card .card-head { padding: 10px 12px; border-bottom: 1px solid var(--line, #333); }
+.card .card-title { font-weight: 600; font-size: 14px; }
+.card .card-sub { opacity: .7; margin-top: 2px; }
+.card .card-item { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; }
+.card .card-item .desc { opacity: .7; font-size: 12px; }
+.card .card-row { display: flex; justify-content: space-between; gap: 12px; padding: 3px 12px; opacity: .8; font-size: 12px; }
+.card .card-total { display: flex; justify-content: space-between; padding: 6px 12px; font-weight: 600; border-top: 1px solid var(--line, #333); }
+.card .card-foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 12px; background: rgba(0,0,0,.25); }
+.card .card-button { display: inline-block; padding: 8px 14px; border-radius: 10px; background: #fff; color: #111; font-weight: 600; cursor: default; }
+.card table { border-collapse: collapse; width: 100%; }
+.card th, .card td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line, #333); vertical-align: top; }
+.card th { font-weight: 600; opacity: .8; }
+.card .card-caption { padding: 8px 12px; }
+
 .typing { font-size: 12.5px; color: var(--faint); margin: 4px 0 4px 4px; font-style: italic; }
 /* A context reset (bench/resets.py): everything below it came after the reset. */
 .reset { margin: 16px 0; padding: 9px 12px; border-left: 3px solid var(--reset); border-radius: 4px 10px 10px 4px;
@@ -327,13 +343,44 @@ footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-
     </div>`;
   }
 
+
+  // A Hark card, drawn like hark.com draws it. Nothing in it is clickable: the button is just its label.
+  function cell(s) {
+    return esc(String(s == null ? '' : s)
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')      // an image shows as its alt text
+      .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')       // a link as its text
+      .replace(/https?:\/\/\S+/g, u => u.replace(/^https?:\/\//, '').split(/[/?#]/)[0]));  // a bare address as its site
+  }
+  function cardHTML(c, channel) {
+    if (!c || !c.kind) return '';
+    if (c.kind === 'order_summary') {
+      const head = `<div class="card-head"><div class="card-title">${esc(c.merchant || c.title || '')}</div>${c.destination ? `<div class="card-sub">${esc(c.destination)}</div>` : ''}</div>`;
+      const items = (c.line_items || []).map(i => `<div class="card-item"><div><div>${i.qty ? esc(i.qty) + '× ' : ''}${esc(i.name || '')}</div>${i.description ? `<div class="desc">${esc(i.description)}</div>` : ''}</div><div>${esc(i.price || '')}</div></div>`).join('');
+      const rows = (c.breakdown || []).map(b => `<div class="card-row"><span>${esc(b.label || '')}</span><span>${esc(b.amount || '')}</span></div>`).join('');
+      const total = c.total ? `<div class="card-total"><span>Total</span><span>${esc(c.total)}</span></div>` : '';
+      const foot = (c.payment || c.action) ? `<div class="card-foot"><span>${esc(c.payment || '')}</span>${c.action ? `<span class="card-button" title="Recorded, never pressed">${esc(c.action)}${c.total ? ' ' + esc(c.total) : ''}</span>` : ''}</div>` : '';
+      return `<div class="card">${head}${items}${rows}${total}${foot}</div>${c.ornament ? `<div class="text">${esc(c.ornament)}</div>` : ''}`;
+    }
+    if (c.kind === 'table') {
+      const head = c.title ? `<div class="card-head"><div class="card-title">${esc(c.title)}</div></div>` : '';
+      const thead = (c.columns || []).length ? `<thead><tr>${c.columns.map(h => `<th>${cell(h)}</th>`).join('')}</tr></thead>` : '';
+      const tbody = `<tbody>${(c.rows || []).map(r => `<tr>${r.map(v => `<td>${cell(v)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+      return `<div class="card">${head}<div style="overflow-x:auto"><table>${thead}${tbody}</table></div></div>${c.ornament ? `<div class="text">${esc(c.ornament)}</div>` : ''}`;
+    }
+    if (c.kind === 'summary') {
+      return `<div class="card"><div class="card-head"><div class="card-title">${esc(c.title || '')}</div></div>${c.markdown ? `<div class="card-caption">${format(c.markdown, channel)}</div>` : ''}</div>`;
+    }
+    return '';
+  }
+
   function messageHTML(m, agent, showDate = false) {
     if (m.service) {  // a notice Telegram left in the chat, not a message
       return `<div class="notice" title="${esc(d(m.date).toString())}">${esc(NOTICES[m.service] || m.service.replace(/_/g, ' '))} · ${showDate ? dateTime(m.date) : time(m.date)}</div>`;
     }
     const parts = [];
     if (m.reply_to_text) parts.push(`<div class="quote">${esc(m.reply_to_text)}</div>`);
-    parts.push(m.text
+    const card = cardHTML(m.card, agent.channel);
+    parts.push(card ? card : m.text
       ? `<div class="text">${format(m.text, agent.channel)}</div>`
       : `<div class="text empty">${m.attachments.length ? '' : 'no text recorded'}</div>`);
     const p = m.link_preview;

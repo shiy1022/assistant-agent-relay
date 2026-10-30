@@ -41,7 +41,7 @@ agents:
     handle: ""               # once you have access
   dots:
     channel: slack
-    handle: "U0CBGVDR955"    # yschore-dot in PJTTY (not the separate ChatGPT app, U0CC083J1PT)
+    handle: "U0CD80586P2"    # yuting-deng-dot in PJTTY, Jassmin's own dot (DM D0CC7BUKU2F). Was U0CBGVDR955 = yschore-dot, Yueheng's dot, which never answered Jassmin
     quiet_period_seconds: 120
     max_wait_seconds: 1800
   hark:

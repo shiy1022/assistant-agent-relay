@@ -64,6 +64,7 @@ Not set up yet. Public reports say `/new` gives "Fresh slate it is." Long-term m
   - Its scheduled tasks were empty, and its Home cards generic.
 - **The main thread can't be archived or deleted from the page.** Hark's own API has calls for it, but the runner never calls Hark's API to change anything.
 - **Settings** has Scheduled tasks (each can be deleted), and System preferences → Data (export, and delete the account). There's **no page for viewing or deleting memory.**
+- **"Wipe your memory" leaves Pages alone.** On 2026-10-27, half an hour after a wipe that reported "only your name is left", Hark linked its Oct 25 Sedona Page (2 adults, Fri Jan 15, a $5,000 budget) as the itinerary for a fresh run with different dates and one traveller. Pages and Projects are the artifacts layer: delete them separately (hark.com → Projects, and each Page's own menu) as part of a reset, and check the thread's old Page cards afterwards.
 - **Hark's page follows the browser's language.** The dedicated Chrome is set to Chinese, so the runner also knows Hark's Chinese name for the Send button (`Selectors` in [bench/channels/hark.py](../bench/channels/hark.py)).
 
 ## How to check a reset

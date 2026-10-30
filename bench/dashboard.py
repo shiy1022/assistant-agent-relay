@@ -25,7 +25,7 @@ OFF_TASK_SECONDS = 30 * 60  # an agent's messages this soon after a message you 
 
 # Message fields the page shows as recorded.
 KEPT = ("date_delivered", "date_read", "date_played", "date_edited", "date_deleted", "date_retracted",
-        "read", "rich", "rich_media", "reactions", "buttons", "link_preview", "service")
+        "read", "rich", "rich_media", "reactions", "buttons", "link_preview", "service", "card")
 
 
 def parse(iso: str) -> datetime:
