@@ -234,10 +234,24 @@ class HarkWeb:
                         "in the dedicated Chrome, then try again.")
 
 
-def message_box(page, selectors: Selectors = Selectors()):
+def _find_box(page, selectors: Selectors):
     box = page.get_by_role("textbox", name=selectors.box_name, exact=True)
     if box.count() != 1:
         box = page.locator(selectors.box_fallback)
+    return box
+
+
+def message_box(page, selectors: Selectors = Selectors(), *, reload: bool = True):
+    """Hark's message box. If the tab shows no box (a hung or half-loaded page; seen 2026-11-01), the
+    chat page is loaded again once before giving up."""
+    box = _find_box(page, selectors)
+    if box.count() != 1 and reload and on_hark(page.url):
+        try:
+            page.goto(CHAT_URL, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(4000)
+        except Exception:  # a navigation that fails leaves the page as it was; the count below says so
+            pass
+        box = _find_box(page, selectors)
     if box.count() != 1:
         raise HarkError(f"found {box.count()} message boxes on {page.url.split('?')[0]}, not one. "
                         "If the tab shows a sign-in page, run: uv run bench hark-login")

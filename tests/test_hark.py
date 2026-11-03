@@ -629,3 +629,27 @@ def test_hark_announcements_are_notices_not_messages_from_me():
     assert event["text"].startswith("Good news!")
     mine = hark_module.message_event({"id": "a1", "role": "user", "timestamp": 1, "content": "hi"}, agent)
     assert mine["is_from_me"] is True and "service" not in mine
+
+
+def test_a_missing_message_box_makes_the_runner_reload_the_chat_once():
+    class Loc:
+        def __init__(self, n): self.n = n
+        def count(self): return self.n
+    class Page:
+        url = "https://hark.com/chat"
+        def __init__(self): self.loaded = []; self.boxes = 0
+        def get_by_role(self, role, name=None, exact=False): return Loc(self.boxes)
+        def locator(self, sel): return Loc(self.boxes)
+        def goto(self, url, **kw): self.loaded.append(url); self.boxes = 1
+        def wait_for_timeout(self, ms): pass
+    page = Page()
+    box = hark_module.message_box(page)
+    assert page.loaded == [CHAT_URL] and box.count() == 1
+    stuck = Page(); stuck.goto = lambda url, **kw: stuck.loaded.append(url)  # reload doesn't help
+    with pytest.raises(HarkError, match="found 0 message boxes"):
+        hark_module.message_box(stuck)
+    assert stuck.loaded == [CHAT_URL]
+    never = Page()
+    with pytest.raises(HarkError):
+        hark_module.message_box(never, reload=False)
+    assert never.loaded == []
