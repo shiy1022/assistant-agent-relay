@@ -21,10 +21,11 @@ Never commit it, and never paste its prompts or criteria anywhere public: an iss
 
 ## Which tasks can run now
 
-The runner talks to each agent one to one and nothing else is connected to the agents yet, so:
+The runner talks to each agent one to one. Since 2026-10-26 each agent also has Gmail, Google Calendar and a payment card (no card for Dots), so:
 
 - **Run now:** tasks whose setup needs no connected account, like Travel.
-- **Not yet:** tasks whose setup connects email, calendar, a bank or a store account to the agent. Connecting those is still a TODO. Until then, the rule in [Connections](connections/README.md#before-you-start) stands: connect nothing else to any agent.
+- **Run now, too:** tasks that need email or calendar. Read the prompt first: one that tells the agent to book or buy may count as your approval on Wajo and Hark, which have a card. See [INTEGRATIONS_PLAN.md](../../INTEGRATIONS_PLAN.md#what-this-means-for-the-benchmark).
+- **Not yet:** tasks whose setup connects a bank or a store account to the agent. The rule in [Connections](connections/README.md#before-you-start) stands: connect nothing beyond email, calendar and the card.
 - **By hand:** tasks set in a group chat, like Group Dinner. The runner never reads or sends in group chats.
 
 No agent has a reset that's passed a full check yet. What's known so far is in [Resetting an agent's context](context-reset.md). Until then, in the `run.json` of a task's first run, note what the agent had already been told, if anything. Notes added by hand are kept.
@@ -44,7 +45,7 @@ No agent has a reset that's passed a full check yet. What's known so far is in [
 
 Run each step on its day, in the same conversation as the steps before it. Follow-ups a tester writes, like those that start `TESTERS:` or depend on the last reply, are sent the same way, with the `--cell` of the row they belong to.
 
-Sending from your phone instead works for every agent, as long as it's in the channel the runner records. Messages sent on wajo.ai, muse.ai or in the ChatGPT app aren't recorded. See [Sending from your phone or the agent's website](other-devices.md).
+Sending from your phone instead works for every agent, as long as it's in the channel the runner records. Messages in Muse's WhatsApp chat or in the ChatGPT app aren't recorded. See [Sending from your phone or the agent's website](other-devices.md).
 
 ## Steps with no prompt
 
@@ -54,7 +55,7 @@ A step that says `NO PROMPT` checks whether the agent acts on its own, like send
 uv run bench sync wajo
 ```
 
-Telegram, Slack and Hark keep the whole chat, so syncing once after the step is enough. WhatsApp records all the time, so there's nothing to sync. These messages go to `data/conversations/<agent>.jsonl`, not to a run folder.
+wajo.ai, Slack and Hark keep the whole chat, so syncing once after the step is enough. muse.ai's copy, which the runner reads, holds the latest 40 messages, which is plenty for one step. These messages go to `data/conversations/<agent>.jsonl`, not to a run folder.
 
 ## Score it
 

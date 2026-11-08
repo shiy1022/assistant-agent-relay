@@ -217,6 +217,10 @@ def markdown(info: dict, messages: list[dict]) -> str:
             head.append(f"{m['versions']} versions")
         if m["deleted_at"]:
             head.append(f"deleted {local(m['deleted_at'])}")
+        if m["channel"] == "hark" and m.get("thread") != messages[0].get("thread"):  # Hark records every thread at once
+            head.append("in the main thread" if m["thread"] is None else f"in Project {m['thread'].rsplit(':', 1)[-1]}")
+        if m["channel"] == "wajo" and m.get("thread") != messages[0].get("thread"):  # Wajo records every chat at once
+            head.append(f"in chat {(m['thread'] or '').rsplit(':', 1)[-1]}")
         lines += [f"## {who} · {', '.join(head)}", "", m["text"] or "*(no text)*", ""]
         extras = [f"- attachment: {a['name']}" + (f" ({a['path']})" if a["path"] else "") for a in m["attachments"]]
         extras += [f"- buttons: {' | '.join(b['text'] for b in row)}" for row in m["buttons"]]
@@ -230,12 +234,15 @@ def rebuild(run_dir: Path, conversations: dict[str, list[dict]] | None = None) -
     """Writes transcript.jsonl, transcript.md and run.json from what's recorded now. Returns run.json."""
     info = read_info(run_dir)
     agent = load_agents().get(info.get("agent"))
-    if agent:
-        info |= {"channel": agent.channel, "handle": agent.handle}
+    if agent and not info.get("channel"):
+        info |= {"channel": agent.channel, "handle": agent.handle}  # a run keeps the channel it was made on
     prompt_path = run_dir / "prompt.txt"
     if not prompt_path.exists():
         raise RunError(f"{run_dir} has no prompt.txt")
     everything = (conversations if conversations is not None else conversation.load()).get(info["agent"], [])
+    # A run is made on one channel: what the agent said elsewhere (like Muse's main chat on muse.ai during a
+    # WhatsApp run) isn't part of it. Resets count wherever they were written down.
+    everything = [m for m in everything if m["role"] == "reset" or m["channel"] == info["channel"]]
     prompt = next((m for m in everything if m["id"] == info.get("prompt_message")), None) \
         or find_prompt(everything, prompt_path.read_text(), info.get("started_at"))
     if prompt is None:

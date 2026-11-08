@@ -1,12 +1,13 @@
 # The dedicated Chrome
 
-Back to [all connections](README.md). Used by [Dots](dots-slack.md) (sending only) and [Hark](hark.md).
+Back to [all connections](README.md). Used by [Dots](dots-slack.md) (sending only), [Hark](hark.md), [Wajo](wajo-web.md) and [Muse](muse-web.md), each in its own tab.
 
 ## What it is
 
 - A real Google Chrome with its own profile at `~/Library/Application Support/agent-runner/chrome` and a debugging port on `127.0.0.1:9222`. Playwright attaches to it and never launches a browser of its own, so sign-ins behave as in a normal browser and stay in the profile across restarts.
 - It runs as a **second Chrome app** next to your everyday one, with its own Dock icon. It isn't signed in to Chrome and doesn't sync.
-- It's signed in to PJTTY's Slack and to Hark (with your Google account), each once by hand.
+- It's signed in to PJTTY's Slack, Hark (with your Google account), wajo.ai and muse.ai (with your Meta account), each once by hand.
+- Chrome's language here is Chinese, so muse.ai and Hark label their buttons in Chinese. The runner knows both the Chinese and English names.
 - Detaching leaves Chrome running with its tabs as they were.
 
 The code is in [bench/channels/chrome.py](../../bench/channels/chrome.py).
@@ -20,6 +21,8 @@ The code is in [bench/channels/chrome.py](../../bench/channels/chrome.py).
 5. Sign it in to each site, once, through its command. Each one waits while you sign in by hand:
    - Slack: `uv run bench slack-login`. See [Dots](dots-slack.md#sign-the-dedicated-chrome-in-to-slack-for-sending).
    - Hark: `uv run bench hark-login`. See [Hark](hark.md#set-up-for-the-first-time).
+   - Wajo: `uv run bench wajo-login`. See [Wajo](wajo-web.md#set-up-for-the-first-time).
+   - Muse: `uv run bench muse-login`. See [Muse](muse-web.md#set-up-for-the-first-time).
 6. Check it's answering on its port:
 
    ```bash
@@ -50,7 +53,7 @@ Or start it yourself:
 open -na "Google Chrome" --args --user-data-dir="$HOME/Library/Application Support/agent-runner/chrome" --remote-debugging-port=9222 --no-first-run --no-default-browser-check --disable-background-timer-throttling --disable-backgrounding-occluded-windows --disable-renderer-backgrounding
 ```
 
-Hark commands start it when it isn't running. Slack commands don't, and say so. After a Mac restart, start it before you use Dots.
+Hark, Wajo and Muse commands start it when it isn't running. Slack commands don't, and say so. After a Mac restart, start it before you use Dots.
 
 The last three flags stop Chrome from pausing tabs you aren't looking at, which would delay or drop updates. Always start it with the full command.
 

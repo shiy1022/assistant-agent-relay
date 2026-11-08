@@ -2,6 +2,8 @@
 
 Back to [all connections](README.md).
 
+**Muse isn't on WhatsApp since 2026-11-07:** it's reached on muse.ai now, see [muse-web.md](muse-web.md). This page is still how Instinct is set up, and how to put Muse back on WhatsApp.
+
 ## How it's connected
 
 | Link | What it is | Where it lives |
@@ -27,7 +29,7 @@ Do [Before you start](README.md#before-you-start) first. You need your iPhone wi
 3. Check that the Meta account shown is the one you use for Muse. If it isn't, tap **Use another account**. Follow the prompts and tap **Get started**, and the chat with Muse opens.
    - **No Muse icon?** In the Muse app, sign in and send "Connect my WhatsApp account", then tap **Connect WhatsApp → Connect**. It also works from Settings → **Messaging Channels** → WhatsApp.
 4. Send Muse "hi" and wait for a reply.
-5. In Muse's settings, set approvals to **ask before sending or buying**. Connect nothing else to Muse for now: no email, calendar or payment.
+5. In Muse's settings, set approvals to **ask before sending or buying**. The benchmark connects Gmail and Google Calendar under Settings → **Connectors**, and a payment method, and nothing else. Check that Facebook, Instagram and Threads haven't connected on their own. See [INTEGRATIONS_PLAN.md](../../../INTEGRATIONS_PLAN.md#muse).
 
 ### On the Mac: build and install the bridge
 

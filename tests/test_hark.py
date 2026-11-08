@@ -6,13 +6,16 @@ from types import SimpleNamespace
 import pytest
 from playwright.sync_api import TimeoutError as PlaywrightTimeout
 
+from bench import conversation
 from bench.channels import hark as hark_module
-from bench.channels.hark import CHAT_URL, FETCH_JS, HarkChannel, HarkError, HarkWeb, Selectors, status, type_and_send
+from bench.channels.hark import (CHAT_URL, FETCH_JS, ORIGIN, HarkChannel, HarkError, HarkNotFound, HarkWeb, Selectors,
+                                 choose_thread, status, type_and_send)
 from bench.config import Agent, ConfigError, normalize_handle
 
 HARK = Agent("hark", "hark.com", 180, 1800, channel="hark")
 USER = {"id": "u-me", "email": "me@example.com", "name": "Me"}
-MAIN, PROJECT = "conv-main", "conv-project"
+MAIN, PROJECT, OLD = "conv-main", "conv-project", "conv-old-project"
+PROJECT_URL = f"{ORIGIN}/project/{PROJECT}"
 ids = itertools.count(1)
 
 
@@ -26,12 +29,16 @@ class FakeSite:
 
     def __init__(self, *, user=USER, page_size=50):
         self.user, self.page_size = user, page_size
-        self.threads = {MAIN: [], PROJECT: []}
-        # The API lists the newer Project first; the main thread is the one made at sign-up.
-        self.listed = [{"id": PROJECT, "createdAt": "2026-10-25T08:00:00.000Z", "archivedAt": None},
-                       {"id": MAIN, "createdAt": "2026-10-25T06:39:19.736Z", "archivedAt": None}]
-        self.windows, self.asks = {}, {}
-        self.box, self.sent, self.calls = "", [], []
+        self.threads = {MAIN: [], PROJECT: [], OLD: []}
+        # The API lists the newer Project first; the main thread is the one made at sign-up, with no title.
+        self.listed = [{"id": PROJECT, "title": "task-travel logistics", "createdAt": "2026-10-25T08:00:00.000Z",
+                        "archivedAt": None},
+                       {"id": OLD, "title": "old errands", "createdAt": "2026-10-25T07:00:00.000Z",
+                        "archivedAt": "2026-10-25T07:30:00.000Z"},
+                       {"id": MAIN, "title": None, "createdAt": "2026-10-25T06:39:19.736Z", "archivedAt": None}]
+        self.windows, self.asks = {}, {}  # the main thread's
+        self.box, self.sent, self.sent_to, self.calls = "", [], [], []
+        self.tab = CHAT_URL
         self.shows_sent = True  # whether a sent message shows up in the thread
 
     def add(self, *messages, thread=MAIN) -> list[dict]:
@@ -49,6 +56,8 @@ class FakeSite:
         self.calls.append(("history", cid, after, before and before["id"]))
         thread = self.threads[cid]
         position = {m["id"]: i for i, m in enumerate(thread)}
+        if after and after not in position:
+            raise HarkNotFound("hark.com answered /api/messages/history with HTTP 404: {\"error\":\"message not found\"}")
         if after:
             page = thread[position[after] + 1:][:self.page_size]
         elif before:
@@ -57,7 +66,8 @@ class FakeSite:
             page = thread[-self.page_size:]
         start = position[page[0]["id"]] if page else len(thread)
         return {"shape": "records", "log": [{"id": m["id"], "kind": "message"} for m in page],
-                "messages": {m["id"]: dict(m) for m in page}, "windows": dict(self.windows), "asks": dict(self.asks),
+                "messages": {m["id"]: dict(m) for m in page},
+                "windows": dict(self.windows) if cid == MAIN else {}, "asks": dict(self.asks) if cid == MAIN else {},
                 "older": {"hasMore": start > 0}, "newer": {"hasMore": False}}
 
     def meter(self):
@@ -67,10 +77,15 @@ class FakeSite:
     def draft(self):
         return self.box
 
-    def send(self, text):
+    def tab_url(self):
+        return self.tab
+
+    def send(self, text, url=CHAT_URL):
         self.sent.append(text)
+        self.sent_to.append(url)
+        self.tab = url
         if self.shows_sent:
-            self.add(msg("user", text))
+            self.add(msg("user", text), thread=MAIN if url == CHAT_URL else url.rsplit("/", 1)[-1])
 
 
 @pytest.fixture
@@ -96,25 +111,56 @@ def sync(site, dirs):
         return h.sync()
 
 
-# MARK: One account, its main thread
+# MARK: One account, its main thread and Projects
 
-def test_first_sync_records_the_whole_main_thread_and_nothing_else(site, dirs):
+def test_first_sync_records_the_whole_main_thread_then_each_project(site, dirs):
     site.page_size = 2
     site.add(msg(content="Hey, I'm Hark.", source="onboarding"),
              msg(actions=[{"kind": "connect_connector", "label": "Sign in to Google"}], source="onboarding"),
              msg("user", "ping"),
              msg(jobStatus="completed", isStreaming=False),
              msg(content="Pong.", presentation={"kind": "text"}, source="send_bubble"))
-    site.add(msg("user", "a project question"), thread=PROJECT)
-    assert sync(site, dirs) == 4
+    site.add(msg("user", "a project question"), msg(content="a project answer"), thread=PROJECT)
+    site.add(msg("user", "an archived question"), thread=OLD)
+    assert sync(site, dirs) == 6
     got = events(dirs)
-    assert [e["text"] if "text" in e else None for e in got] == ["Hey, I'm Hark.", None, "ping", "Pong."]
+    assert [e["text"] if "text" in e else None for e in got] == [
+        "Hey, I'm Hark.", None, "ping", "Pong.", "a project question", "a project answer"]
     assert all(e["kind"] == "new" and e["channel"] == "hark" for e in got)
     assert got[1]["buttons"] == [[{"text": "Sign in to Google", "kind": "connect_connector"}]]  # recorded, not pressed
-    assert [e["is_from_me"] for e in got] == [False, False, True, False]
-    assert {c[1] for c in site.calls if c != "session"} == {MAIN}  # the Project is never read
+    assert [e["is_from_me"] for e in got] == [False, False, True, False, True, False]
+    assert [e.get("project") for e in got] == [None] * 4 + [PROJECT] * 2  # the main thread's carry none
+    assert {c[1] for c in site.calls if c != "session"} == {MAIN, PROJECT}  # an archived Project isn't read
     assert json.loads((dirs.pins / "pins.json").read_text()) == {"user_id": "u-me", "email": "me@example.com",
                                                                   "conversation_id": MAIN}
+
+
+def test_a_project_made_later_is_recorded_from_its_start(site, dirs):
+    site.listed = [c for c in site.listed if c["id"] == MAIN]
+    site.add(msg("user", "main before"))
+    sync(site, dirs)
+    site.listed.insert(0, {"id": PROJECT, "title": "new", "createdAt": "2026-10-27T02:58:05.111Z", "archivedAt": None})
+    site.add(msg("user", "first in the project"), msg(content="its answer"), thread=PROJECT)
+    site.add(msg(content="main after"))
+    assert sync(site, dirs) == 3
+    assert [(e["text"], e.get("project")) for e in events(dirs)] == [
+        ("main before", None), ("main after", None), ("first in the project", PROJECT), ("its answer", PROJECT)]
+
+
+def test_state_from_before_projects_carries_over_without_recording_the_main_thread_again(site, dirs):
+    old = site.add(msg("user", "ping"), msg(content="Pong."))
+    dirs.pins.mkdir(parents=True)
+    (dirs.pins / "pins.json").write_text(json.dumps({"user_id": "u-me", "email": "me@example.com", "conversation_id": MAIN}))
+    state = dirs.inbox.parent / "state.json"
+    state.parent.mkdir(parents=True)
+    tracked = {m["id"]: {"sig": hark_module.signature(hark_module.message_event(m, HARK)), "date": None} for m in old}
+    state.write_text(json.dumps({"conversation_id": MAIN, "synced": True, "last_id": old[-1]["id"],
+                                 "tracked": tracked, "working": {}}))  # as kept when only the main thread was recorded
+    site.add(msg(content="new in main"))
+    site.add(msg("user", "in the project"), thread=PROJECT)
+    assert sync(site, dirs) == 2
+    assert [e["text"] for e in events(dirs)] == ["new in main", "in the project"]
+    assert set(json.loads(state.read_text())["threads"]) == {MAIN, PROJECT}
 
 
 def test_another_account_is_refused_before_anything_is_read(site, dirs):
@@ -185,6 +231,45 @@ def test_messages_that_arrive_between_syncs_are_all_recorded(site, dirs):
     assert any(c[2] for c in site.calls if c != "session")  # caught up with after=
 
 
+def test_a_work_record_hark_deletes_is_never_where_sync_catches_up_from(site, dirs):
+    # 2026-11-07: Hark deleted an empty work record that sync had kept as the last message; paging
+    # forward from it answered 404 "message not found", and every sync failed.
+    site.page_size = 3
+    site.add(msg("user", "first"), msg(content="answer"))
+    work = msg(jobStatus="running", isStreaming=True)
+    site.add(work)
+    sync(site, dirs)
+    site.threads[MAIN].remove(work)  # done, so Hark deletes it
+    site.add(*[msg(content=f"part {i}") for i in range(7)])
+    sync(site, dirs)
+    assert [e.get("text") for e in events(dirs) if e["kind"] == "new"] == ["first", "answer"] + [f"part {i}" for i in range(7)]
+
+
+def test_a_deleted_last_message_is_caught_up_from_the_latest_page_back(site, dirs):
+    site.page_size = 3
+    site.add(msg("user", "first"), msg(content="answer"))
+    sync(site, dirs)
+    with channel(site, dirs) as h:  # state as it was written before last_at was kept
+        h.state["threads"][MAIN] = {"synced": True, "last_id": "a-record-hark-deleted"}
+        h._save_state()
+    site.add(*[msg(content=f"part {i}") for i in range(7)])
+    sync(site, dirs)
+    assert [e.get("text") for e in events(dirs) if e["kind"] == "new"] == ["first", "answer"] + [f"part {i}" for i in range(7)]
+
+
+def test_no_paging_when_the_latest_page_reaches_back_far_enough(site, dirs):
+    site.page_size = 50
+    site.add(msg("user", "first"), msg(content="answer"))
+    sync(site, dirs)
+    with channel(site, dirs) as h:
+        h.state["threads"][MAIN]["last_id"] = "a-record-hark-deleted"  # gone, but the latest page holds what's new
+        h._save_state()
+    site.add(msg(content="more"))
+    site.calls.clear()
+    assert sync(site, dirs) == 1
+    assert [c for c in site.calls if c != "session"] == [("history", MAIN, None, None), ("history", PROJECT, None, None)]
+
+
 def test_messages_let_go_after_the_track_window_are_not_recorded_again(site, dirs):
     site.add(msg(content="old", timestamp=int((time.time() - 3 * 86400) * 1000)))
     sync(site, dirs)
@@ -206,6 +291,70 @@ def test_send_records_the_message_from_the_thread(site, dirs):
     assert site.sent == ["Plan a 3-day trip to Sedona 🌵\nfor MLK weekend"]
     assert event["is_from_me"] and event["message_id"] == site.threads[MAIN][-1]["id"]
     assert events(dirs) == [event]
+
+
+def test_send_goes_to_the_project_chosen_and_main_is_still_recorded(site, dirs):
+    sync(site, dirs)
+    assert "Project \"task-travel logistics\"" in choose_thread("task-travel logistics", pin_dir=dirs.pins, site=site)
+    with channel(site, dirs) as h:
+        h.sync()
+        event = h.send(HARK, "Help me book a 3-day trip")
+        site.add(msg(content="Morning! A note from Hark."))  # unprompted, in the main thread
+        site.add(msg(content="Who's going?"), thread=PROJECT)
+        h.sync()
+    assert site.sent_to == [PROJECT_URL]
+    assert event["project"] == PROJECT and event["message_id"] == site.threads[PROJECT][-2]["id"]
+    assert [(e["text"], e.get("project")) for e in events(dirs)] == [
+        ("Help me book a 3-day trip", PROJECT), ("Morning! A note from Hark.", None), ("Who's going?", PROJECT)]
+
+
+def test_choosing_a_thread(site, dirs):
+    sync(site, dirs)
+    pins = dirs.pins / "pins.json"
+    choose_thread(PROJECT[:6], pin_dir=dirs.pins, site=site)
+    assert json.loads(pins.read_text())["send_to"] == PROJECT
+    listing = choose_thread(pin_dir=dirs.pins, site=site)
+    assert listing.splitlines()[1:] == ["  the main thread",
+                                        f'  Project "task-travel logistics" ({PROJECT})  ← bench send and bench run type here']
+    choose_thread("main", pin_dir=dirs.pins, site=site)
+    assert "send_to" not in json.loads(pins.read_text())  # the main thread is the default
+    with pytest.raises(HarkError, match="archived"):
+        choose_thread(OLD, pin_dir=dirs.pins, site=site)
+    with pytest.raises(HarkError, match="no Project matches"):
+        choose_thread("nonexistent", pin_dir=dirs.pins, site=site)
+    with pytest.raises(HarkError, match="no Project matches"):
+        choose_thread("con", pin_dir=dirs.pins, site=site)  # too short to stand for an ID
+
+
+def test_send_refuses_a_project_that_was_archived(site, dirs):
+    sync(site, dirs)
+    choose_thread(PROJECT, pin_dir=dirs.pins, site=site)
+    site.listed[0]["archivedAt"] = "2026-10-28T00:00:00.000Z"
+    with channel(site, dirs) as h, pytest.raises(HarkError, match="archived or gone"):
+        h.send(HARK, "hello")
+    assert site.sent == []
+
+
+def test_project_messages_export_with_their_thread():
+    event = {"kind": "new", "emitted_at": "2026-10-27T03:00:00.000Z", "channel": "hark", "agent": "hark",
+             "handle": "hark.com", "guid": "hark:m1", "message_id": "m1", "is_from_me": True, "text": "hi",
+             "date": "2026-10-27T03:00:00.000Z", "project": PROJECT}
+    assert conversation.message(event, 1, event["emitted_at"], None)["thread"] == f"hark:project:{PROJECT}"
+    assert conversation.message({**event, "project": None}, 1, event["emitted_at"], None)["thread"] is None
+
+
+def test_a_run_transcript_says_when_a_message_came_in_another_thread():
+    from bench import runs
+
+    def m(role, text, thread):
+        return {"role": role, "text": text, "sent_at": "2026-10-27T03:00:00.000Z", "edited_at": None, "versions": 1,
+                "deleted_at": None, "attachments": [], "buttons": [], "reactions": [], "channel": "hark", "thread": thread}
+
+    project = f"hark:project:{PROJECT}"
+    md = runs.markdown({"agent": "hark", "channel": "hark", "run": "r", "task": "Travel Logistics"},
+                       [m("user", "Plan it", project), m("agent", "Who's going?", project), m("agent", "Morning!", None)])
+    heads = [line for line in md.splitlines() if line.startswith("## ")]
+    assert ["in the main thread" in h for h in heads] == [False, False, True]
 
 
 def test_a_sent_message_that_never_shows_up_is_an_error(site, dirs):
@@ -238,8 +387,13 @@ def test_status_checks_without_sending_or_recording(site, dirs):
     sync(site, dirs)
     before = events(dirs)
     report = status(pin_dir=dirs.pins, site=site)
-    assert "signed in as me@example.com" in report and MAIN in report and "idle" in report
+    assert "signed in as me@example.com" in report and f"Main thread: {MAIN} (idle)" in report
+    assert f'Project "task-travel logistics": {PROJECT} (idle)' in report and OLD not in report
+    assert "Sending to: the main thread (the Hark tab is showing it)" in report
     assert "found, empty" in report and "62,822 of 8,000,000 today" in report
+    choose_thread(PROJECT, pin_dir=dirs.pins, site=site)
+    assert "Sending to: Project \"task-travel logistics\"" in status(pin_dir=dirs.pins, site=site)
+    assert "sending opens the thread first" in status(pin_dir=dirs.pins, site=site)
     assert site.sent == [] and events(dirs) == before
 
 
@@ -413,6 +567,23 @@ def test_hark_web_reads_only_hark_api_paths_from_the_hark_tab():
     with pytest.raises(HarkError, match="only hark.com's own /api/"):
         web.get("/chat")
     assert slack.visited == []  # other tabs are never navigated
+
+
+def test_hark_web_send_opens_the_thread_first_only_when_needed():
+    page = FakePage("https://hark.com/settings/connected-cards")
+    web = HarkWeb(browser=browser(page))
+    web.send("to the project", PROJECT_URL, sleep=lambda s: None)
+    web.send("again", PROJECT_URL, sleep=lambda s: None)
+    assert page.visited == [PROJECT_URL] and page.sent == ["to the project", "again"]
+    web.send("to main", CHAT_URL, sleep=lambda s: None)
+    assert page.visited == [PROJECT_URL, CHAT_URL]
+
+
+def test_hark_web_send_never_leaves_a_half_written_message():
+    page = FakePage(typed="half-written")
+    with pytest.raises(HarkError, match="already has text"):
+        HarkWeb(browser=browser(page)).send("hello", PROJECT_URL, sleep=lambda s: None)
+    assert page.visited == [] and page.typed == "half-written"
 
 
 def test_hark_web_opens_hark_chat_when_no_tab_is_on_hark():

@@ -11,7 +11,10 @@ What it guarantees:
   hark.com, and it only GETs hark.com's own /api/ paths.
 - One Hark account. Whoever is signed in the first time is pinned, with that
   account's main thread, and every later command refuses to run if another
-  account is signed in. Projects are separate threads and aren't touched.
+  account is signed in.
+- Every thread is recorded: the main thread and each Project that isn't
+  archived. Sending types into one of them, the main thread unless you choose a
+  Project (bench hark-thread), and the tab is put on that thread's page first.
 - It never clicks Hark's message box: Hark lays a tappable suggested prompt
   (like "Get a bánh mì off DoorDash") over the empty box. The text goes in with
   fill(), is checked, and only then is Send clicked. It never types over text
@@ -38,6 +41,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from bench.channels.chrome import CDP_URL, ChromeError, attach
 from bench.config import PRIVATE_DIR, Agent
@@ -50,6 +54,7 @@ TRACK_WINDOW = timedelta(hours=48)  # how long a message is watched for edits
 POLL_SECONDS = 3                    # how often listen checks for new messages
 WORK_EVERY = 10                     # seconds between "working" events for one record (the dashboard joins gaps under 15 s)
 SENT_SECONDS = 30                   # how long a sent message may take to show up in Hark's thread
+BOX_SECONDS = 15                    # how long a thread's page may take to show its message box after opening
 MAX_PAGES = 200                     # history pages read in one go, catching up
 DONE = {"completed", "failed", "cancelled", "canceled", "error", "stopped", "done"}
 
@@ -60,6 +65,10 @@ class HarkError(Exception):
 
 class HarkNetworkError(HarkError):
     """The Hark tab couldn't be read just now. Worth retrying later."""
+
+
+class HarkNotFound(HarkNetworkError):
+    """hark.com answered 404: what was asked for, like a message to page from, is gone."""
 
 
 @dataclass(frozen=True)
@@ -81,6 +90,17 @@ FETCH_JS = """async ({path, params}) => {
 
 def on_hark(url: str) -> bool:
     return url == ORIGIN or url.startswith(ORIGIN + "/")
+
+
+def thread_url(conversation_id: str, main: str) -> str:
+    """The page that shows a thread: hark.com/chat for the main thread, hark.com/project/<id> for a Project."""
+    return CHAT_URL if conversation_id == main else f"{ORIGIN}/project/{conversation_id}"
+
+
+def shows(page_url: str, url: str) -> bool:
+    """Whether the tab at `page_url` is showing the thread page `url` (or one of its messages)."""
+    page, want = urlsplit(page_url), urlsplit(url)
+    return page.netloc == want.netloc and (page.path == want.path or page.path.startswith(want.path + "/"))
 
 
 # MARK: - hark.com in Chrome
@@ -142,6 +162,8 @@ class HarkWeb:
             raise HarkNetworkError(f"couldn't read {path} from the Hark tab: {str(e).splitlines()[0]}") from None
         if result["status"] in (401, 403):
             raise HarkError("hark.com says nobody is signed in. Run: uv run bench hark-login")
+        if result["status"] == 404:
+            raise HarkNotFound(f"hark.com answered {path} with HTTP 404: {result['text'][:200]}")
         if result["status"] != 200:
             raise HarkNetworkError(f"hark.com answered {path} with HTTP {result['status']}")
         try:
@@ -171,8 +193,31 @@ class HarkWeb:
         """What's in Hark's message box right now."""
         return message_box(self.page(), self.selectors).input_value()
 
-    def send(self, text: str) -> None:
-        type_and_send(self.page(), text, self.selectors, self.sent_seconds)
+    def tab_url(self) -> str:
+        """Where the Hark tab is."""
+        return self.page().url
+
+    def send(self, text: str, url: str = CHAT_URL, sleep: Callable[[float], None] = time.sleep) -> None:
+        """Types `text` into the thread whose page is `url`, opening that page in the Hark tab first if needed."""
+        page = self.page()
+        if not shows(page.url, url):
+            try:
+                draft = message_box(page, self.selectors).input_value()
+            except HarkError:
+                draft = ""  # this page has no message box, so nothing is lost by leaving it
+            if draft:
+                raise HarkError("Hark's message box already has text in it. Send or delete it in Chrome, then try again.")
+            page.goto(url, wait_until="domcontentloaded")
+            deadline = time.monotonic() + BOX_SECONDS
+            while True:
+                try:
+                    message_box(page, self.selectors)
+                    break
+                except HarkError:
+                    if time.monotonic() > deadline:
+                        raise
+                    sleep(0.5)
+        type_and_send(page, text, self.selectors, self.sent_seconds)
 
     def sign_in(self, wait_seconds: float = 600, sleep: Callable[[float], None] = time.sleep,
                 clock: Callable[[], float] = time.monotonic) -> bool:
@@ -274,8 +319,9 @@ def buttons(actions: list[dict] | None) -> list[list[dict]] | None:
     return [row] if row else None
 
 
-def message_event(msg: dict, agent: Agent) -> dict:
-    """One Hark message in the shared event format, without kind and emitted_at."""
+def message_event(msg: dict, agent: Agent, project: str | None = None) -> dict:
+    """One Hark message in the shared event format, without kind and emitted_at.
+    `project` is the Project's conversation ID, for a message that isn't in the main thread."""
     presentation = (msg.get("presentation") or {}).get("kind")
     event = {
         "channel": "hark",
@@ -291,11 +337,12 @@ def message_event(msg: dict, agent: Agent) -> dict:
         "streaming": True if msg.get("isStreaming") else None,
         "triggered_by": msg.get("triggeredByMessageId"),  # the message of yours it answers
         "source": msg.get("source"),
+        "project": project,
     }
     return {k: v for k, v in event.items() if v is not None}
 
 
-def ask_event(ask_id: str, ask: dict, agent: Agent) -> dict:
+def ask_event(ask_id: str, ask: dict, agent: Agent, project: str | None = None) -> dict:
     """A question or approval Hark is waiting on, as a message from Hark. Its options are recorded, never chosen."""
     text = next((ask[k] for k in ("question", "prompt", "title", "text", "message", "label") if isinstance(ask.get(k), str)), "")
     options = ask.get("options") or ask.get("choices") or []
@@ -306,7 +353,7 @@ def ask_event(ask_id: str, ask: dict, agent: Agent) -> dict:
         "guid": f"hark:ask:{ask_id}", "message_id": f"ask:{ask_id}", "is_from_me": False,
         "text": text or json.dumps(ask, ensure_ascii=False)[:2000],
         "date": ms_time(ask.get("createdAt") or ask.get("timestamp")),
-        "rich": True, "buttons": [row] if row else None, "hark_kind": "ask",
+        "rich": True, "buttons": [row] if row else None, "hark_kind": "ask", "project": project,
     }
     return {k: v for k, v in event.items() if v is not None}
 
@@ -350,7 +397,8 @@ class ChannelLock:
 
 
 class HarkChannel:
-    """A hark.com session that records the Hark agent's main thread.
+    """A hark.com session that records the Hark agent's threads: the main thread, and
+    each Project that isn't archived. It sends in one of them (see `send_to`).
 
         with HarkChannel(agents) as hark:
             hark.sync()
@@ -386,10 +434,7 @@ class HarkChannel:
             if self.site is None:
                 self.site = self._own_site = HarkWeb().__enter__()
             self.pins = connect(self.site, self.pins_path)
-            self.state = json.loads(self.state_path.read_text()) if self.state_path.exists() else {}
-            if self.state.get("conversation_id") != self.pins["conversation_id"]:
-                self.state = {"conversation_id": self.pins["conversation_id"], "synced": False, "last_id": None,
-                              "tracked": {}, "working": {}}
+            self.state = load_state(self.state_path, self.main)
         except BaseException:
             self.__exit__()
             raise
@@ -402,6 +447,24 @@ class HarkChannel:
         if self._lock is not None:
             self._lock.__exit__()
             self._lock = None
+
+    @property
+    def main(self) -> str:
+        """The account's main thread, pinned on first use."""
+        return self.pins["conversation_id"]
+
+    @property
+    def send_to(self) -> str:
+        """The thread sending types into: the Project chosen with bench hark-thread, else the main thread."""
+        return self.pins.get("send_to") or self.main
+
+    def threads(self) -> list[str]:
+        """The threads recorded: the main thread, then each Project that isn't archived, oldest first."""
+        return [self.main] + [c["id"] for c in projects(self.site.conversations(), self.main)]
+
+    def project(self, conversation_id: str) -> str | None:
+        """What events say about where a message is: the Project's ID, or None in the main thread."""
+        return None if conversation_id == self.main else conversation_id
 
     # MARK: Recording
 
@@ -428,11 +491,13 @@ class HarkChannel:
 
     def _seen_before(self, event: dict) -> bool:
         """Whether an untracked message is one recorded earlier and since let go."""
-        if not self.state["synced"] or not event.get("date"):
-            return False  # the first sync records the whole thread
+        thread = self.state["threads"].get(event.get("project") or self.main) or {}
+        if not thread.get("synced") or not event.get("date"):
+            return False  # a thread's first sync records the whole thread
         return event["date"] < iso(datetime.now(UTC) - TRACK_WINDOW)
 
-    def _working(self, record_id: str, action: str, detail: str | None = None, at: str | None = None) -> int:
+    def _working(self, record_id: str, action: str, detail: str | None = None, at: str | None = None,
+                 project: str | None = None) -> int:
         """A "typing" event while Hark works on something, at most one per record every WORK_EVERY seconds."""
         at = at or now_iso()
         last = self.state["working"].get(record_id)
@@ -440,14 +505,15 @@ class HarkChannel:
             return 0
         self.state["working"][record_id] = at
         event = {"channel": "hark", "agent": self.agent.name, "handle": self.agent.handle, "action": action,
-                 "message_id": record_id, **({"detail": detail} if detail else {})}
+                 "message_id": record_id, **({"detail": detail} if detail else {}),
+                 **({"project": project} if project else {})}
         self._emit("typing", event, at)
         return 1
 
-    def _observe(self, msg: dict, at: str | None = None) -> int:
+    def _observe(self, msg: dict, at: str | None = None, project: str | None = None) -> int:
         if is_work(msg):
-            return self._working(msg["id"], "working", at=at) if running(msg) else 0
-        return 1 if self._record(message_event(msg, self.agent), at) else 0
+            return self._working(msg["id"], "working", at=at, project=project) if running(msg) else 0
+        return 1 if self._record(message_event(msg, self.agent, project), at) else 0
 
     def _prune(self) -> None:
         cutoff = iso(datetime.now(UTC) - TRACK_WINDOW)
@@ -465,54 +531,111 @@ class HarkChannel:
     # MARK: What the runner calls
 
     def sync(self) -> int:
-        """Records what arrived or changed in the thread since last time. Returns events written."""
-        cid = self.pins["conversation_id"]
+        """Records what arrived or changed in every thread since last time. Returns events written."""
+        written = sum(self._sync_thread(cid) for cid in self.threads())
+        self._prune()
+        self._save_state()
+        return written
+
+    def _sync_thread(self, cid: str) -> int:
+        """Records what arrived or changed in one thread since last time."""
+        thread = self.state["threads"].setdefault(cid, {"synced": False, "last_id": None})
+        project = self.project(cid)
         latest = self.site.history(cid)
         pages = [latest]
-        if not self.state["synced"]:  # first sync: the whole thread
+        if not thread["synced"]:  # first sync: the whole thread
             page = latest
             while (page.get("older") or {}).get("hasMore") and ordered(page):
                 page = self.site.history(cid, before=ordered(page)[0])
                 pages.insert(0, page)
-        elif (last := self.state["last_id"]) and last not in (latest.get("messages") or {}) \
-                and (latest.get("older") or {}).get("hasMore"):
-            # A lot arrived since last time: page forward from the last recorded message until the latest page.
-            caught_up, cursor = [], last
+        elif self._gap(cid, thread, latest):
+            pages = self._catch_up(cid, thread, latest) + pages
+        messages: dict[str, dict] = {}
+        for page in pages:
+            for msg in ordered(page):
+                messages[msg["id"]] = msg
+        written = sum(self._observe(msg, project=project) for msg in messages.values())
+        for wid, window in (latest.get("windows") or {}).items():
+            if running(window):
+                written += self._working(f"window:{wid}", "browsing", window_detail(window), project=project)
+        for aid, ask in (latest.get("asks") or {}).items():
+            written += bool(self._record(ask_event(aid, ask, self.agent, project)))
+        # Where the next sync catches up from: the last real message, never one of Hark's empty work
+        # records, which it deletes once the work is done (paging from a deleted one answers 404).
+        last = next((m for m in reversed(list(messages.values())) if not is_work(m)), None)
+        if last:
+            thread["last_id"], thread["last_at"] = last["id"], last.get("timestamp")
+        thread["synced"] = True
+        return written
+
+    def _gap(self, cid: str, thread: dict, latest: dict) -> bool:
+        """Whether more arrived since last time than the latest page holds."""
+        last = thread.get("last_id")
+        if not last or last in (latest.get("messages") or {}) or not (latest.get("older") or {}).get("hasMore"):
+            return False
+        last_at = thread.get("last_at") or self._last_recorded_at(cid)
+        page = ordered(latest)
+        if last_at and page and isinstance(page[0].get("timestamp"), (int, float)):
+            return page[0]["timestamp"] >= last_at  # the latest page starts at or after it: something may be in between
+        return True
+
+    def _catch_up(self, cid: str, thread: dict, latest: dict) -> list[dict]:
+        """The pages between the last message recorded and the latest page, oldest first.
+
+        Pages forward from that message. If Hark no longer has it, pages back from the
+        latest page instead, until a page reaches back to when it was sent."""
+        in_latest = set(latest.get("messages") or {})
+        caught_up, cursor = [], thread["last_id"]
+        try:
             for _ in range(MAX_PAGES):
                 page = self.site.history(cid, after=cursor)
                 if not ordered(page):
                     break
                 caught_up.append(page)
-                if any(m["id"] in (latest.get("messages") or {}) for m in ordered(page)):
+                if any(m["id"] in in_latest for m in ordered(page)):
                     break
                 cursor = ordered(page)[-1]["id"]
-            pages = caught_up + pages
-        messages: dict[str, dict] = {}
-        for page in pages:
-            for msg in ordered(page):
-                messages[msg["id"]] = msg
-        written = sum(self._observe(msg) for msg in messages.values())
-        for wid, window in (latest.get("windows") or {}).items():
-            if running(window):
-                written += self._working(f"window:{wid}", "browsing", window_detail(window))
-        for aid, ask in (latest.get("asks") or {}).items():
-            written += bool(self._record(ask_event(aid, ask, self.agent)))
-        if messages:
-            self.state["last_id"] = list(messages)[-1]
-        self.state["synced"] = True
-        self._prune()
-        self._save_state()
-        return written
+            return caught_up
+        except HarkNotFound:
+            print(f"hark: the message last recorded in {label(cid, self.main)} is gone from Hark; "
+                  "catching up from the latest page back instead", file=sys.stderr)
+        last_at = thread.get("last_at") or self._last_recorded_at(cid) or 0
+        back, page = [], latest
+        for _ in range(MAX_PAGES):
+            if not ((page.get("older") or {}).get("hasMore") and ordered(page)) or ordered(page)[0].get("timestamp", 0) < last_at:
+                break  # this page reaches back to before the last message recorded
+            page = self.site.history(cid, before=ordered(page)[0])
+            back.insert(0, page)
+        return back
+
+    def _last_recorded_at(self, cid: str) -> int | None:
+        """When the newest message recorded from a thread was sent, in ms, from the inbox
+        (for state written before last_at was kept)."""
+        project, newest = self.project(cid), None
+        if not self.inbox.exists():
+            return None
+        for line in self.inbox.read_text().splitlines():
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            if e.get("kind") in ("new", "update") and e.get("date") and e.get("project") == project:
+                newest = max(newest or e["date"], e["date"])
+        return int(datetime.fromisoformat(newest.replace("Z", "+00:00")).timestamp() * 1000) if newest else None
 
     def send(self, agent: Agent, text: str) -> dict | None:
-        """Sends `text` in Hark's main thread, then finds and records it there."""
+        """Sends `text` in the thread chosen to send to (the main thread unless a Project was chosen),
+        then finds and records it there."""
         if agent != self.agent:
             raise HarkError(f"{agent.name} isn't the Hark agent in config/agents.yaml")
         if not text.strip():
             raise HarkError("refusing to send an empty message")
-        cid = self.pins["conversation_id"]
+        cid = self.send_to
+        if cid not in self.threads():
+            raise HarkError(f"the Project agent-runner sends to ({cid}) is archived or gone, so nothing was sent. "
+                            "Choose another with: uv run bench hark-thread")
         before = set(self.site.history(cid).get("messages") or {})
-        self.site.send(text)
+        self.site.send(text, thread_url(cid, self.main))
         deadline = self.clock() + SENT_SECONDS
         while True:
             mine = [m for m in ordered(self.site.history(cid)) if m["id"] not in before and m.get("role") == "user"]
@@ -520,10 +643,11 @@ class HarkChannel:
                 msg = next((m for m in mine if m.get("content") == text), mine[0])
                 if msg.get("content") != text:
                     print(f"hark: Hark shows the sent message as {msg.get('content')!r}", file=sys.stderr)
-                return self._record(message_event(msg, self.agent))
+                return self._record(message_event(msg, self.agent, self.project(cid)))
             if self.clock() >= deadline:
-                raise HarkError(f"clicked Send, but the message didn't show up in Hark's thread within {SENT_SECONDS}s. "
-                                "Check hark.com/chat in the dedicated Chrome.")
+                raise HarkError(f"clicked Send, but the message didn't show up in {label(cid, self.main)} within "
+                                f"{SENT_SECONDS}s. Check {thread_url(cid, self.main)} in the dedicated Chrome, "
+                                "and whether it went to another thread.")
             self.sleep(1)
 
     def listen(self, seconds: float | None = None, poll_seconds: float = POLL_SECONDS) -> None:
@@ -571,10 +695,81 @@ class HarkChannel:
         return written
 
 
-# MARK: - Account, sign-in and status
+# MARK: - Account, threads, sign-in and status
 
 def load_pins(path: Path) -> dict:
     return json.loads(path.read_text()) if path.exists() else {}
+
+
+def load_state(path: Path, main: str) -> dict:
+    """What's been recorded: each thread's progress, and the messages still watched for edits.
+    State from before Projects were recorded (one thread) carries over as the main thread's."""
+    state = json.loads(path.read_text()) if path.exists() else {}
+    if "threads" in state:
+        return state
+    if state.get("conversation_id") != main:  # nothing recorded yet, or a different main thread
+        return {"threads": {}, "tracked": {}, "working": {}}
+    return {"threads": {main: {"synced": state.get("synced", False), "last_id": state.get("last_id")}},
+            "tracked": state.get("tracked") or {}, "working": state.get("working") or {}}
+
+
+def projects(conversations: list[dict], main: str) -> list[dict]:
+    """The account's Projects that aren't archived, oldest first: every thread but the main one."""
+    return sorted((c for c in conversations if c.get("id") != main and not c.get("archivedAt")),
+                  key=lambda c: c.get("createdAt") or "")
+
+
+def label(conversation_id: str, main: str, title: str | None = None) -> str:
+    if conversation_id == main:
+        return "the main thread"
+    return f'Project "{title}" ({conversation_id})' if title else f"Project {conversation_id}"
+
+
+def choose_thread(choice: str | None = None, *, pin_dir: Path = PIN_DIR, site=None) -> str:
+    """Lists Hark's threads, and with `choice`, makes it the one sending types into.
+
+    `choice` is "main", a Project's ID or the start of one, or its title. It changes
+    only where bench send and bench run type: every thread is recorded either way.
+    """
+    own = site is None
+    with ChannelLock(pin_dir):
+        site = site or HarkWeb().__enter__()
+        try:
+            pins = connect(site, pin_dir / "pins.json")
+            main = pins["conversation_id"]
+            listed = site.conversations()
+            if choice:
+                cid = pick_thread(choice, listed, main)
+                pins = {k: v for k, v in pins.items() if k != "send_to"} | ({"send_to": cid} if cid != main else {})
+                save_pins(pin_dir / "pins.json", pins)
+            send_to = pins.get("send_to") or main
+            threads = [{"id": main}] + projects(listed, main)
+            lines = [label(c["id"], main, c.get("title")) + ("  ← bench send and bench run type here" if c["id"] == send_to else "")
+                     for c in threads]
+            if send_to not in [c["id"] for c in threads]:
+                lines.append(f"Sending is set to {send_to}, which is archived or gone. Choose another: "
+                             "uv run bench hark-thread main")
+            return "Recording all of these:\n" + "\n".join(f"  {line}" for line in lines)
+        finally:
+            if own:
+                site.__exit__()
+
+
+def pick_thread(choice: str, conversations: list[dict], main: str) -> str:
+    """The thread `choice` names: "main", a Project's ID or the start of one (at least 4 characters), or its title."""
+    if choice.strip().lower() in ("main", "chat"):
+        return main
+    live = projects(conversations, main)
+    matches = [c for c in live if c["id"] == choice] \
+        or [c for c in live if (c.get("title") or "").strip().lower() == choice.strip().lower()] \
+        or ([c for c in live if c["id"].startswith(choice)] if len(choice) >= 4 else [])
+    if len(matches) == 1:
+        return matches[0]["id"]
+    if any(c.get("id") == choice or (c.get("title") or "") == choice for c in conversations if c.get("archivedAt")):
+        raise HarkError(f"{choice} is archived on Hark. Unarchive it there, or choose another thread.")
+    known = ", ".join(f'"{c.get("title")}" ({c["id"]})' for c in live) or "none"
+    raise HarkError(f"{'more than one' if matches else 'no'} Project matches {choice!r}. "
+                    f"Give main, or one of these Projects by title or ID: {known}")
 
 
 def save_pins(path: Path, pins: dict) -> None:
@@ -620,7 +815,8 @@ def sign_in(*, pin_dir: Path = PIN_DIR, site=None) -> str:
 
 
 def status(*, pin_dir: Path = PIN_DIR, site=None) -> str:
-    """Checks the sign-in, the pinned account, the message box and Hark's token meter, without sending or recording."""
+    """Checks the sign-in, the pinned account, the threads recorded and the one sent to, the message box
+    and Hark's token meter, without sending or recording."""
     own = site is None
     with ChannelLock(pin_dir):
         site = site or HarkWeb().__enter__()
@@ -635,8 +831,21 @@ def status(*, pin_dir: Path = PIN_DIR, site=None) -> str:
             elif not pins:
                 lines.append("Not pinned yet. The first sync pins this account and its main thread.")
             else:
-                busy = any(running(m) for m in ordered(site.history(pins["conversation_id"])))
-                lines.append(f"Main thread: {pins['conversation_id']} ({'Hark is working on something' if busy else 'idle'})")
+                main = pins["conversation_id"]
+                live = projects(site.conversations(), main)
+                for c in [{"id": main}] + live:
+                    busy = any(running(m) for m in ordered(site.history(c["id"])))
+                    name = "Main thread" if c["id"] == main else f'Project "{c.get("title")}"'
+                    lines.append(f"{name}: {c['id']} ({'Hark is working on something' if busy else 'idle'})")
+                send_to = pins.get("send_to") or main
+                if send_to != main and send_to not in [c["id"] for c in live]:
+                    lines.append(f"Sending to: NOT READY: Project {send_to} is archived or gone. "
+                                 "Choose another: uv run bench hark-thread main")
+                else:
+                    title = next((c.get("title") for c in live if c["id"] == send_to), None)
+                    tab = "showing it" if shows(site.tab_url(), thread_url(send_to, main)) else \
+                        "showing another page; sending opens the thread first"
+                    lines.append(f"Sending to: {label(send_to, main, title)} (the Hark tab is {tab})")
             try:
                 lines.append("Message box: " + ("has text in it, so sending would refuse" if site.draft() else "found, empty"))
             except HarkError as e:

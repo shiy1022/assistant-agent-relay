@@ -25,8 +25,14 @@
     bench slack-login                     sign the dedicated Chrome in to the Slack workspace (for send_via: web)
     bench slack-status                    check the Slack token, workspace and agents without sending
     bench hark-login                      sign the dedicated Chrome in to Hark, and pin the account
-    bench hark-status                     check Hark's sign-in, message box and token meter without sending
+    bench hark-status                     check Hark's sign-in, threads, message box and token meter without sending
+    bench hark-thread [THREAD]            list Hark's threads (all are recorded); with THREAD, send there: main or a Project
     bench hark-import RUN_DIR             record a Hark run made before the channel existed
+    bench wajo-login                      sign the dedicated Chrome in to wajo.ai, and pin the account
+    bench wajo-status                     check Wajo's sign-in, chats and message box without sending
+    bench wajo-thread [CHAT]              list Fo's chats (all are recorded); with CHAT, send there: new, or a chat's title or ID
+    bench muse-login                      sign the dedicated Chrome in to muse.ai, and pin the account
+    bench muse-status                     check Muse's sign-in, main chat and message box without sending
     bench reader-status                   (iMessage, parked) is bench-reader running?
 """
 
@@ -60,7 +66,8 @@ def format_event(event: dict, thread: int | None = None) -> str:
     if kind == "typing":
         return f"{local_time(event['emitted_at'])}  {event['agent']:<9} … {event['action'].replace('_', ' ')}"
     arrow = "→" if event["is_from_me"] else "←"
-    head = f"{local_time(event.get('date'))}  {event['agent']:<9} {arrow} " + (f"[thread {thread}] " if thread else "")
+    head = f"{local_time(event.get('date'))}  {event['agent']:<9} {arrow} " + (f"[thread {thread}] " if thread else "") \
+        + (f"[project {event['project'][:8]}] " if event.get("project") else "")  # Hark: not the main thread
     if kind == "deleted":
         return head + "(deleted)"
     if kind == "update":
@@ -130,6 +137,20 @@ def hark_channel(agent: Agent, on_event=print_event):
     return HarkChannel([agent], on_event=on_event)
 
 
+SITES = ("hark", "wajo", "muse")  # agents reached on their own website in the dedicated Chrome
+
+
+def site_channel(agent: Agent, on_event=print_event):
+    """The channel for an agent reached on its own website: Hark, Wajo or Muse."""
+    if agent.channel == "hark":
+        return hark_channel(agent, on_event)
+    if agent.channel == "wajo":
+        from bench.channels.wajo import WajoChannel
+        return WajoChannel([agent], on_event=on_event)
+    from bench.channels.muse import MuseChannel
+    return MuseChannel([agent], on_event=on_event)
+
+
 def cmd_agents(args: argparse.Namespace) -> None:
     agents = load_agents()
     if not agents:
@@ -182,12 +203,12 @@ def converse(agent: Agent, text: str, plan, on_event=print_event) -> None:
             slack.send(agent, text)
             while seconds := plan.next():
                 slack.listen(seconds)
-    elif agent.channel == "hark":
-        with hark_channel(agent, on_event) as hark:
-            hark.sync()
-            hark.send(agent, text)
+    elif agent.channel in SITES:
+        with site_channel(agent, on_event) as site:
+            site.sync()
+            site.send(agent, text)
             while seconds := plan.next():
-                hark.listen(seconds)
+                site.listen(seconds)
     elif agent.channel == "imessage":
         from bench.imessage.send import send
         requested_at = send(agent, text)
@@ -344,11 +365,11 @@ def cmd_listen(args: argparse.Namespace) -> None:
             print(recording_message(args.seconds), flush=True)
             slack.listen(args.seconds)
         return
-    if agent and agent.channel == "hark":
-        with hark_channel(agent) as hark:
-            hark.sync()
+    if agent and agent.channel in SITES:
+        with site_channel(agent) as site:
+            site.sync()
             print(recording_message(args.seconds), flush=True)
-            hark.listen(args.seconds)
+            site.listen(args.seconds)
         return
 
     async def work(telegram):
@@ -366,9 +387,9 @@ def cmd_sync(args: argparse.Namespace) -> None:
         with slack_channel(get_agent(args.agent)) as slack:
             print(f"{slack.sync()} events recorded")
         return
-    if args.agent and get_agent(args.agent).channel == "hark":
-        with hark_channel(get_agent(args.agent)) as hark:
-            print(f"{hark.sync()} events recorded")
+    if args.agent and get_agent(args.agent).channel in SITES:
+        with site_channel(get_agent(args.agent)) as site:
+            print(f"{site.sync()} events recorded")
         return
 
     async def work(telegram):
@@ -498,12 +519,42 @@ def cmd_hark_status(args: argparse.Namespace) -> None:
     print(status())
 
 
+def cmd_hark_thread(args: argparse.Namespace) -> None:
+    from bench.channels.hark import choose_thread
+    print(choose_thread(args.thread))
+
+
 def cmd_hark_import(args: argparse.Namespace) -> None:
     agent = next((a for a in load_agents().values() if a.channel == "hark"), None)
     if agent is None:
         raise ChannelError(f"no Hark agent has a handle in {AGENTS_FILE}")
     with hark_channel(agent) as hark:
         print(f"{hark.import_run(Path(args.run_dir).expanduser().resolve())} events recorded")
+
+
+def cmd_wajo_login(args: argparse.Namespace) -> None:
+    from bench.channels.wajo import sign_in
+    print(sign_in())
+
+
+def cmd_wajo_status(args: argparse.Namespace) -> None:
+    from bench.channels.wajo import status
+    print(status())
+
+
+def cmd_wajo_thread(args: argparse.Namespace) -> None:
+    from bench.channels.wajo import choose_thread
+    print(choose_thread(args.chat))
+
+
+def cmd_muse_login(args: argparse.Namespace) -> None:
+    from bench.channels.muse import sign_in
+    print(sign_in())
+
+
+def cmd_muse_status(args: argparse.Namespace) -> None:
+    from bench.channels.muse import status
+    print(status())
 
 
 def cmd_reader_status(args: argparse.Namespace) -> None:
@@ -617,13 +668,24 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(func=cmd_snapshot)
     sub.add_parser("hark-login").set_defaults(func=cmd_hark_login)
     sub.add_parser("hark-status").set_defaults(func=cmd_hark_status)
+    p = sub.add_parser("hark-thread")
+    p.add_argument("thread", nargs="?", help="main, or a Project's title, ID or the start of its ID")
+    p.set_defaults(func=cmd_hark_thread)
     p = sub.add_parser("hark-import")
     p.add_argument("run_dir", help="a runs/… folder with run.json and events.jsonl")
     p.set_defaults(func=cmd_hark_import)
+    sub.add_parser("wajo-login").set_defaults(func=cmd_wajo_login)
+    sub.add_parser("wajo-status").set_defaults(func=cmd_wajo_status)
+    p = sub.add_parser("wajo-thread")
+    p.add_argument("chat", nargs="?", help="new (the next send starts a chat), or a chat's title, ID or the start of its ID")
+    p.set_defaults(func=cmd_wajo_thread)
+    sub.add_parser("muse-login").set_defaults(func=cmd_muse_login)
+    sub.add_parser("muse-status").set_defaults(func=cmd_muse_status)
     sub.add_parser("reader-status").set_defaults(func=cmd_reader_status)
 
     args = parser.parse_args(argv)
     from bench.channels.hark import HarkError
+    from bench.channels.site import SiteError
     from bench.channels.slack import SlackError
     from bench.channels.telegram import TelegramError
     from bench.channels.whatsapp import WhatsAppError
@@ -635,7 +697,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         args.func(args)
     except (ConfigError, ChannelError, ConsoleError, DeliverableError, HarkError, ResetError, RunError, SendError,
-            SlackError, TelegramError, WhatsAppError) as e:
+            SiteError, SlackError, TelegramError, WhatsAppError) as e:
         print(f"bench: {e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

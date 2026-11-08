@@ -2,6 +2,8 @@
 
 Back to [all connections](README.md).
 
+**Not the channel in use since 2026-11-07:** Wajo is reached on wajo.ai now, see [wajo-web.md](wajo-web.md). This page is for going back to Telegram, and for runs made before.
+
 ## How it's connected
 
 | Link | What it is | Where it lives |
@@ -21,7 +23,7 @@ Do [Before you start](README.md#before-you-start) first. You need your iPhone, a
 2. **Connect Fo to Telegram:** in Safari, sign in at [wajo.ai](https://wajo.ai/) and open Settings → General → connect Telegram. That opens Fo's chat in Telegram. Tap **Start** if Telegram shows it.
 3. Send Fo "hi" and wait for a reply.
 4. Tap Fo's name at the top of the chat and note its **username**, which starts with @. Ours is `@hey_fo_bot`.
-5. Check that Fo **asks before spending money**, because it has its own payment card. Connect nothing else to Fo for now: no email, calendar or payment.
+5. Check that Fo **asks before spending money**, because it has its own payment card and a card of yours is connected. The benchmark connects your Google account (Gmail and Calendar) under wajo.ai → Settings → **Connections**, and a payment card, and nothing else. See [INTEGRATIONS_PLAN.md](../../../INTEGRATIONS_PLAN.md#wajo-fo).
 
 ### On the Mac: an API key
 

@@ -9,6 +9,8 @@
 #             ⋮ → Copy member ID), or the @name it goes by in the workspace
 #   hark      hark.com: the account signed in there in the dedicated Chrome
 #             (bench hark-login), pinned the first time it's used
+#   wajo      wajo.ai: the same, for Fo's web app (bench wajo-login)
+#   muse      muse.ai: the same, for Muse's web app (bench muse-login)
 #   imessage  phone number or email (parked; bench-reader is compiled from these
 #             handles, so changing one means reader/install.sh and re-approving it)
 # Agents left blank are skipped.
@@ -29,11 +31,17 @@ defaults:
 
 agents:
   wajo:
-    channel: telegram
-    handle: "@hey_fo_bot"    # Fo's Telegram username
+    channel: wajo            # Fo's web app, in the dedicated Chrome
+    handle: "wajo.ai"
+    # Before 2026-11-07, over Telegram:
+    #   channel: telegram
+    #   handle: "@hey_fo_bot"  # Fo's Telegram username
   muse:
-    channel: whatsapp
-    handle: "1807055946647697@bot"  # Muse's WhatsApp bot ID, as whatsmeow knows it; W0 confirms it
+    channel: muse            # Muse's web app, its main chat, in the dedicated Chrome
+    handle: "muse.ai"
+    # Before 2026-11-07, over WhatsApp:
+    #   channel: whatsapp
+    #   handle: "1807055946647697@bot"  # Muse's WhatsApp bot ID, as whatsmeow knows it
     quiet_period_seconds: 180
     max_wait_seconds: 1800
   instinct:

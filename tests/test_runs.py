@@ -143,6 +143,28 @@ def test_rebuild_keeps_extra_fields_and_lists_deliverables(tmp_path, agents):
     assert list(json.loads((run_dir / "run.json").read_text()))[-1] == "notes"  # standard keys first
 
 
+def test_rebuild_keeps_the_channel_a_run_was_made_on(tmp_path, monkeypatch):
+    run_dir = runs.start(FO, PROMPT, task="Travel vF Golden", runs_dir=tmp_path / "runs", now=START)
+    runs.end(run_dir, "quiet for 90s", now=datetime(2026, 10, 25, 3, 40, tzinfo=UTC))
+    # Wajo moved to wajo.ai afterwards; the run was made over Telegram, and still says so
+    monkeypatch.setattr(runs, "load_agents", lambda: {"wajo": Agent("wajo", "wajo.ai", 90, 900, channel="wajo")})
+    info = runs.rebuild(run_dir, convos(tmp_path, wajo_events()))
+    assert (info["channel"], info["handle"]) == ("telegram", FO.handle)
+    assert (run_dir / "transcript.md").read_text().startswith("# Travel vF Golden · wajo (telegram)")
+
+
+def test_a_run_holds_only_its_own_channel(tmp_path, agents):
+    run_dir = runs.start(FO, PROMPT, task="Travel vF Golden", runs_dir=tmp_path / "runs", now=START)
+    runs.end(run_dir, "quiet for 90s", now=datetime(2026, 10, 25, 3, 40, tzinfo=UTC))
+    web = {"kind": "new", "emitted_at": "2026-10-25T03:35:00.000Z", "channel": "wajo", "agent": "wajo",
+           "handle": "wajo.ai", "guid": "wajo:m1", "message_id": "m1", "is_from_me": False,
+           "text": "said on wajo.ai meanwhile", "date": "2026-10-25T03:35:00.000Z", "chat": "c1"}
+    everything = conversation.load({"telegram": write_jsonl(tmp_path / "inbox" / "messages.jsonl", wajo_events()),
+                                    "wajo": write_jsonl(tmp_path / "wajo" / "messages.jsonl", [web])})
+    info = runs.rebuild(run_dir, everything)
+    assert "wajo:m1" not in info["messages"] and info["timing"]["agent_messages"] == 2
+
+
 def test_run_json_says_what_came_before_the_prompt(tmp_path, agents):
     first = runs.start(FO, "an earlier run", task="t", runs_dir=tmp_path / "runs", now=datetime(2026, 10, 25, 3, 0, tzinfo=UTC))
     run_dir = runs.start(FO, PROMPT, task="Travel vF Golden", runs_dir=tmp_path / "runs", now=START)
@@ -274,7 +296,8 @@ class Slices:
         return self.seconds.pop(0) if self.seconds else 0
 
 
-@pytest.mark.parametrize("channel, factory", [("slack", "slack_channel"), ("hark", "hark_channel")])
+@pytest.mark.parametrize("channel, factory", [("slack", "slack_channel"), ("hark", "hark_channel"),
+                                              ("wajo", "site_channel"), ("muse", "site_channel")])
 def test_converse_sends_then_records_each_slice(monkeypatch, channel, factory):
     log = []
     monkeypatch.setattr(cli, factory, lambda agent, on_event: FakeChannel(log))

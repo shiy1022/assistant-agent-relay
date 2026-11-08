@@ -12,7 +12,7 @@ Every line has all of these keys (null or [] when they don't apply):
 
     id            unique across channels, like "telegram:8599638402:12"
     agent         the agent's name in config/agents.yaml
-    channel       telegram, whatsapp, slack, hark or imessage
+    channel       telegram, whatsapp, slack, hark, wajo, muse or imessage
     role          "user" (sent by you), "agent", or "reset" (below)
     text          the message's text, "" if it has none (see attachments and buttons)
     sent_at       when it was sent, ISO 8601 in UTC
@@ -20,7 +20,9 @@ Every line has all of these keys (null or [] when they don't apply):
     deleted_at    when it was deleted or unsent; the text is what it said before
     versions      how many different texts it had (a streamed reply has many)
     reply_to      the id of the message it answers or quotes
-    thread        Slack only: the id of the thread's first message
+    thread        Slack: the id of the thread's first message. Hark: "hark:project:<id>" for a
+                  message in a Project, null in the main thread. Wajo on wajo.ai: "wajo:chat:<id>",
+                  the chat it's in. Null on other channels.
     attachments   [{name, mime_type, path}]: path is absolute, if it was downloaded
     buttons       rows of [{text, kind, url}] the agent offered; never pressed
     links         every URL in the message, its link preview and its buttons
@@ -98,6 +100,7 @@ def links(text: str, event: dict) -> list[str]:
     if (event.get("link_preview") or {}).get("url"):
         found.append(event["link_preview"]["url"])
     found += [b["url"] for row in event.get("buttons") or [] for b in row if b.get("url")]
+    found += [url for url in event.get("pages") or [] if isinstance(url, str)]  # Wajo: the Pages Fo made for it
     return list(dict.fromkeys(found))
 
 
@@ -112,6 +115,10 @@ def message(event: dict, versions: int, recorded_at: str, inbox_dir: Path) -> di
     thread = None
     if event.get("channel") == "slack":
         thread = sibling(guid, reply_to or event["message_id"])
+    elif event.get("channel") == "hark" and event.get("project"):
+        thread = f"hark:project:{event['project']}"
+    elif event.get("channel") == "wajo" and event.get("chat"):
+        thread = f"wajo:chat:{event['chat']}"
     return {
         "id": guid,
         "agent": event.get("agent"),

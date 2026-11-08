@@ -13,13 +13,15 @@ Each agent has two links, and either one can break:
 
 | Agent | Channel | Our side | Check | Doc |
 |---|---|---|---|---|
-| **Wajo (Fo)** | Telegram | A Telethon session on your Telegram account | `uv run bench sync wajo` | [wajo-telegram.md](wajo-telegram.md) |
-| **Muse** | WhatsApp | `bench-whatsapp`, a linked device that runs in the background | `uv run bench whatsapp-status` | [muse-instinct-whatsapp.md](muse-instinct-whatsapp.md) |
+| **Wajo (Fo)** | wajo.ai | The dedicated Chrome, signed in to Wajo | `uv run bench wajo-status` | [wajo-web.md](wajo-web.md) |
+| **Muse** | muse.ai | The dedicated Chrome, signed in to Muse | `uv run bench muse-status` | [muse-web.md](muse-web.md) |
 | **Instinct** | WhatsApp | The same bridge (not set up yet) | `uv run bench whatsapp-status` | [muse-instinct-whatsapp.md](muse-instinct-whatsapp.md#instinct-once-you-have-access) |
 | **Dots** | Slack (PJTTY only) | A user token for reading, and the dedicated Chrome for sending | `uv run bench slack-status` | [dots-slack.md](dots-slack.md) |
 | **Hark** | hark.com | The dedicated Chrome, signed in to Hark | `uv run bench hark-status` | [hark.md](hark.md) |
 
-Dots and Hark share the [dedicated Chrome](dedicated-chrome.md).
+Dots, Hark, Wajo and Muse share the [dedicated Chrome](dedicated-chrome.md), each in its own tab.
+
+**Since 2026-11-07, Wajo and Muse are reached on their own websites,** the way Hark is, instead of Telegram and WhatsApp. Their old channels still work if you switch `channel:` back in `config/agents.yaml`: [wajo-telegram.md](wajo-telegram.md), [muse-instinct-whatsapp.md](muse-instinct-whatsapp.md). Runs made on either keep the channel they were made on.
 
 ## Before you start
 
@@ -65,7 +67,7 @@ Do this once on the Mac, before setting up any agent.
 **Rules for every agent:**
 - Use your own accounts. The runner messages each agent as you.
 - Set each agent to **ask before it sends or buys anything**. The runner records approval requests and never approves them.
-- Connect nothing else to any agent for now: no email, calendar or payment method.
+- Gmail, Google Calendar and a payment card are connected to each agent, except no card for Dots. You set them up by hand on 2026-10-26. Connect nothing beyond that, and never give an agent standing permission to buy. What each agent can do with them, and the risks: [INTEGRATIONS_PLAN.md](../../../INTEGRATIONS_PLAN.md).
 - Secrets go in the Keychain, entered at the `security` prompt yourself. Never paste them into chat or into a file in the repo.
 
 ## Set up from scratch
@@ -74,9 +76,9 @@ Set up the agents in this order. Each step ends with a check and a first message
 
 | Step | Agent | What you'll do | Time |
 |---|---|---|---|
-| 1 | [Wajo (Fo)](wajo-telegram.md#set-up-for-the-first-time) | Connect Fo to Telegram, make a Telegram API key, link this Mac by QR code | ~15 min |
-| 2 | [Muse](muse-instinct-whatsapp.md#set-up-for-the-first-time) | Start Muse in WhatsApp, build the bridge, link it by QR code | ~15 min |
-| 3 | [The dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time) | Start it once. Steps 4 and 5 sign it in. | ~2 min |
+| 1 | [The dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time) | Start it once. The steps after it sign it in. | ~2 min |
+| 2 | [Wajo (Fo)](wajo-web.md#set-up-for-the-first-time) | Sign Chrome in to wajo.ai | ~5 min |
+| 3 | [Muse](muse-web.md#set-up-for-the-first-time) | Sign Chrome in to muse.ai | ~5 min |
 | 4 | [Dots](dots-slack.md#set-up-for-the-first-time) | Add the dot to Slack, create the runner's Slack app and token, sign Chrome in to Slack | ~20 min |
 | 5 | [Hark](hark.md#set-up-for-the-first-time) | Sign Chrome in to Hark | ~10 min |
 | Later | [Instinct](muse-instinct-whatsapp.md#instinct-once-you-have-access) | Once you have access: find its WhatsApp address and add it | ~5 min |
@@ -85,10 +87,14 @@ Each agent is one entry under `agents:` in [config/agents.yaml](../../config/age
 
 ## Check everything
 
-None of these send anything to an agent. `sync wajo` records whatever's new in Fo's chat, because Telegram has no separate status command.
+None of these send anything to an agent.
 
 ```bash
-uv run bench whatsapp-status
+uv run bench wajo-status
+```
+
+```bash
+uv run bench muse-status
 ```
 
 ```bash
@@ -99,15 +105,18 @@ uv run bench slack-status
 uv run bench hark-status
 ```
 
-```bash
-uv run bench sync wajo
-```
-
-All healthy looks like this (checked 2026-10-25):
+All healthy looks like this (Slack and Hark checked 2026-10-25, Wajo and Muse 2026-11-07):
 
 ```
-bench-whatsapp is running in the background.
-WhatsApp: linked, connected, offline; agents: muse
+Wajo: signed in as <your email> (<id>, plan micro)
+Recording every chat with Fo, from 2026-11-08T02:55:51.201Z on
+…
+Message box: found, empty
+
+Muse: signed in as account <id> (cloud computer <id>)
+Main chat: 40 messages in muse.ai's copy, the latest at … (idle)
+…
+Message box: found, empty
 
 Slack: PJTTY (https://pjtty.slack.com/), team T0CARQF460P, signed in as <you> (U…)
 …
@@ -117,8 +126,6 @@ Hark: signed in as <your Google email> (<id>)
 Main thread: <thread id> (idle)
 Message box: found, empty
 …
-
-1 events recorded
 ```
 
 If a check fails, open that agent's doc. It has a table that goes from the error you see to the fix.
@@ -134,14 +141,17 @@ If a check fails, open that agent's doc. It has a table that goes from the error
 |---|---|
 | WhatsApp | Nothing. The bridge starts itself when you log in. |
 | Telegram | Nothing. Nothing runs in the background, and the session is kept in a file. |
-| Hark | Nothing. Any Hark command starts the dedicated Chrome. |
+| Hark, Wajo, Muse | Nothing. Any of their commands starts the dedicated Chrome. |
 | Slack (Dots) | Start the dedicated Chrome first, because Slack commands don't start it. `uv run bench hark-status` starts it and checks Hark too. |
+| WhatsApp, Telegram | Only if you switched Wajo or Muse back to them. |
 
 Then run the checks above.
 
 ## What's lost while disconnected
 
-- **Telegram, Slack and Hark:** nothing. Their servers keep the whole chat, and the next `bench sync <agent>` records what arrived in the meantime.
+- **wajo.ai, Slack and Hark:** nothing. Their servers keep the whole chat, and the next `bench sync <agent>` records what arrived in the meantime.
+- **muse.ai:** nothing, as long as fewer than 40 messages arrived in the main chat meanwhile: muse.ai's copy, which the runner reads, holds the latest 40.
+- **Telegram:** nothing, as for wajo.ai.
 - **WhatsApp, offline but still linked:** nothing. WhatsApp holds messages for the device until it reconnects.
 - **WhatsApp, unlinked:** messages from the gap aren't recorded. The bridge drops WhatsApp's history copy on purpose. Read them on your phone.
 
@@ -157,7 +167,7 @@ uv run bench sync <agent>
 uv run bench run-rebuild runs/<run folder>
 ```
 
-WhatsApp has nothing to sync, since the bridge records all the time, so run only `run-rebuild` for Muse or Instinct.
+WhatsApp has nothing to sync, since the bridge records all the time, so run only `run-rebuild` for Instinct, or for Muse while it was on WhatsApp.
 
 ## Optional: an end-to-end ping
 
@@ -180,6 +190,8 @@ Never commit these or paste them anywhere. The Telegram session and WhatsApp's `
 | WhatsApp background job, log | `~/Library/LaunchAgents/local.personal-agent-benchmark.bench-whatsapp.plist`, `~/Library/Logs/bench-whatsapp.log` |
 | Slack pins (PJTTY's team ID, the dot's DM) | `~/Library/Application Support/agent-runner/slack/pins.json` |
 | Hark pins (account, main thread) | `~/Library/Application Support/agent-runner/hark/pins.json` |
+| Wajo pins (account, workspace, since when, the kept chat), and wajo.ai's server function IDs once relearned | `~/Library/Application Support/agent-runner/wajo/` (`pins.json`, `functions.json`) |
+| Muse pins (account, cloud computer) | `~/Library/Application Support/agent-runner/muse/pins.json` |
 | Dedicated Chrome profile | `~/Library/Application Support/agent-runner/chrome/` |
 | Recorded messages | `data/inbox/<channel>/` (WhatsApp's are in the bridge's `inbox/`) |
 
