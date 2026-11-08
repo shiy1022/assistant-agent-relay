@@ -308,3 +308,58 @@ def test_stopping_the_console_lets_running_jobs_write_their_records(make):
     assert queued.state == "cancelled"
     with pytest.raises(ConsoleError, match="stopping"):
         c.submit({"agents": ["wajo"], "text": "hi"})
+
+
+# MARK: The task view
+
+def test_the_task_view_grades_and_mail_from_the_page(make, tmp_path):
+    from tests.test_taskview import ROWS, write_run, write_xlsx
+
+    runs, tasks = tmp_path / "runs", tmp_path / "tasks"
+    tasks.mkdir()
+    write_xlsx(tasks / "Housewarming task.xlsx", "Housewarming draft", ROWS)
+    for agent in ("wajo", "dots"):
+        write_run(runs, f"20261107-120000-{agent}", agent=agent, channel="telegram" if agent == "wajo" else "slack",
+                  started="2026-11-07T20:00:00.000Z")
+    reads = []
+
+    def read_mail(day, plants):
+        reads.append(day)
+        return {"account": "yschore@gmail.com", "date": day.isoformat(), "read_at": "now", "messages": [], "missing_plants": []}
+
+    c = make(tasks_dir=tasks, grades_dir=tmp_path / "grades", calendar_dir=tmp_path / "calendar", mail_reader=read_mail)
+    s = console.Server(("127.0.0.1", 0), c, "s3cret-token")
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    try:
+        token = {"X-Console-Token": "s3cret-token"}
+        state = json.loads(request(s, "GET", "/api/state", headers=token)[2])
+        [day] = state["tasks"]
+        assert (day["task"], sorted(a["name"] for a in day["agents"])) == ("Housewarming draft", ["dots", "wajo"])
+
+        q = "?" + urllib.parse.urlencode({"task": day["task"], "date": day["date"]})
+        assert request(s, "GET", "/api/task" + q)[0] == 403
+        view = json.loads(request(s, "GET", "/api/task" + q, headers=token)[2])
+        assert view["rubrics"]["steps"]["DAY 1 CHECKPOINT 1"]["subjective"].startswith("(0–10) Does it know")
+
+        grade = {"task": day["task"], "date": day["date"], "step": "DAY 1 CHECKPOINT 1", "ranks": {"dots": 1, "wajo": 2}}
+        status, _, body = request(s, "POST", "/api/grade", headers=token, body=grade)
+        assert status == 200 and json.loads(body)["grade"]["ranks"] == {"wajo": 2, "dots": 1}
+        status, _, body = request(s, "POST", "/api/grade", headers=token, body=grade | {"ranks": {"dots": 1, "wajo": 1}})
+        assert (status, json.loads(body)) == (400, {"error": "two agents can't have the same rank"})
+        view = json.loads(request(s, "GET", "/api/task" + q, headers=token)[2])
+        assert view["grades"]["DAY 1 CHECKPOINT 1"]["ranks"] == {"wajo": 2, "dots": 1}
+
+        assert json.loads(request(s, "GET", "/api/mail" + q, headers=token)[2])["account"] == "yschore@gmail.com"
+        request(s, "GET", "/api/mail" + q, headers=token)  # kept for a minute
+        request(s, "GET", "/api/mail" + q + "&fresh=1", headers=token)  # unless you ask again
+        assert len(reads) == 2
+        status, _, body = request(s, "GET", "/api/mail?task=x&date=soon", headers=token)
+        assert (status, json.loads(body)) == (400, {"error": "that's not a date"})
+    finally:
+        s.shutdown()
+        s.server_close()
+
+
+def test_email_is_read_only_for_the_real_inboxes(make):
+    with pytest.raises(ConsoleError, match="only read for the real inboxes"):
+        make().mail("Housewarming draft", "2026-11-07")

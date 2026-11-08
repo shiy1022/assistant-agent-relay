@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Agent Console</title>
 <!-- Page for `bench console` (bench/console.py), which serves it with its token filled in.
-     The conversation view follows bench/dashboard.html; keep the two looking alike. -->
+     Messages look as in bench/dashboard.html; keep the two looking alike. -->
 <style>
 :root {
   --bg: #f5f5f2;
@@ -22,8 +22,12 @@
   --whatsapp: #178a4e;
   --slack: #8a3a8f;
   --hark: #b4521f;
+  --wajo: #8a6d00;
+  --muse: #1f6fb4;
   --imessage: #2f6fe0;
   --mark: #ffe17a;
+  --grade: #9a5b00;
+  --grade-bg: #fff4dc;
   --danger: #b8402c;
   --reset: #a25a00;
   --ok: #1f8a4c;
@@ -47,8 +51,12 @@
     --whatsapp: #3cc07a;
     --slack: #cf86d4;
     --hark: #ec9363;
+    --wajo: #e0c04a;
+    --muse: #6fb2ec;
     --imessage: #5b92ff;
     --mark: #806b12;
+    --grade: #f0b45e;
+    --grade-bg: #33280f;
     --danger: #ef7a62;
     --reset: #f0b45e;
     --ok: #4cc47f;
@@ -72,8 +80,12 @@
   --whatsapp: #3cc07a;
   --slack: #cf86d4;
   --hark: #ec9363;
+  --wajo: #e0c04a;
+  --muse: #6fb2ec;
   --imessage: #5b92ff;
   --mark: #806b12;
+  --grade: #f0b45e;
+  --grade-bg: #33280f;
   --danger: #ef7a62;
   --reset: #f0b45e;
   --ok: #4cc47f;
@@ -88,163 +100,284 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
 }
 button, input, select, textarea { font: inherit; color: inherit; }
-.wrap { max-width: 1240px; margin: 0 auto; padding: 28px 16px 40px; }
+.wrap { padding: 14px 16px 0; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
 
-header.top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; margin-bottom: 16px; }
-header.top h1 { font-size: 22px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
-.live { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 13px; }
+header.top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 10px; }
+header.top h1 { font-size: 18px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.controls { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; flex: 1 1 600px; }
+.controls select, .controls input[type="search"] {
+  font-size: 13.5px; padding: 5px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); min-width: 0;
+}
+.controls select#session { max-width: 380px; font-weight: 550; }
+.controls input[type="search"] { flex: 0 1 220px; }
+.controls label { display: flex; align-items: center; gap: 6px; font-size: 13.5px; color: var(--muted); cursor: pointer; user-select: none; }
+.controls label.blind { color: var(--text); font-weight: 550; }
+.live { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12.5px; }
 .live .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
 .live.on .dot { background: var(--ok); }
 .live.off .dot { background: var(--danger); }
 .live.off { color: var(--danger); }
-.banner { margin: 0 0 14px; padding: 9px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-text); font-size: 14px; }
-.banner code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+.banner { margin: 0 0 10px; padding: 8px 14px; border-radius: 10px; background: var(--warn-bg); color: var(--warn-text); font-size: 13.5px; }
 
-.tabs { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.tab {
-  position: relative; text-align: left; cursor: pointer;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
-  padding: 12px 14px; box-shadow: var(--shadow); display: flex; gap: 12px; align-items: center;
+/* The task's steps: which one the columns show, and which one is graded */
+.steps { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 10px; }
+.steps .lbl { font-size: 12.5px; color: var(--muted); margin-right: 2px; }
+.step-btn {
+  cursor: pointer; font-size: 13px; font-weight: 550; padding: 3px 11px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
 }
-.tab:hover { border-color: var(--faint); }
-.tab[aria-selected="true"] { border-color: var(--ch); box-shadow: 0 0 0 1px var(--ch) inset; }
-.tab .who { min-width: 0; }
-.tab .name { font-weight: 600; display: flex; align-items: center; gap: 6px; }
-.tab .sub { color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.busy { font-size: 11.5px; font-weight: 600; color: var(--ch); background: color-mix(in srgb, var(--ch) 13%, transparent); padding: 0 7px; border-radius: 999px; }
+.step-btn:hover { border-color: var(--faint); }
+.step-btn[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: var(--bg); }
+.step-btn .ranked { font-size: 11px; margin-left: 4px; color: var(--ok); }
+.step-btn[aria-pressed="true"] .ranked { color: inherit; opacity: 0.8; }
+.steps .info { font-size: 12.5px; color: var(--faint); margin-left: auto; }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; box-shadow: var(--shadow); }
+
+/* Grading: the step's subjective question, its rubric, and your ranking */
+.grading { padding: 12px 16px; margin-bottom: 12px; border-color: color-mix(in srgb, var(--grade) 45%, var(--border));
+  display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 4px 22px; align-items: start; }
+.grading .g-left, .grading .g-right { min-width: 0; }
+.grading .g-right details:first-child { margin-top: 0; }
+.grading .g-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.grading .g-step { font-size: 12px; font-weight: 650; color: var(--grade); text-transform: uppercase; letter-spacing: 0.03em; }
+.grading h2 { margin: 0; font-size: 16px; font-weight: 650; }
+.grading .g-note { font-size: 12.5px; color: var(--muted); }
+.grading details { margin-top: 6px; font-size: 13px; }
+.grading details + details { margin-top: 2px; }
+.grading summary { cursor: pointer; color: var(--muted); font-weight: 550; }
+.grading .g-text { white-space: pre-wrap; margin: 4px 0 6px; padding: 7px 10px; border-radius: 8px; background: var(--surface-2); max-height: 150px; overflow: auto; font-size: 12.5px; }
+.ranks { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 10px; }
+.ranks .lbl { font-size: 13px; color: var(--muted); }
+.ranks .aspect-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; flex-basis: 100%; }
+.ranks .aspect { font-size: 12.5px; font-weight: 700; color: var(--grade); min-width: 130px; }
+.rank { display: flex; align-items: center; gap: 6px; }
+.rank .who { font-weight: 650; color: var(--ch); font-size: 13.5px; }
+.rank .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.rank .seg button { cursor: pointer; border: 0; background: var(--surface); padding: 2px 9px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rank .seg button + button { border-left: 1px solid var(--border); }
+.rank .seg button[aria-pressed="true"] { background: var(--grade); color: var(--surface); font-weight: 700; }
+.ranks .status { font-size: 12px; color: var(--muted); flex-basis: 100%; }
+.ranks .status .err { color: var(--danger); font-weight: 550; }
+
+/* The agents, side by side */
+.columns { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(290px, 1fr)); gap: 12px; overflow-x: auto; padding-bottom: 2px; }
+.col { display: flex; flex-direction: column; min-width: 0; height: max(440px, calc(100vh - 150px)); }
+.col-head { padding: 10px 12px 8px; border-bottom: 1px solid var(--border); }
+.col-head .title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.col-head h2 { margin: 0; font-size: 16px; font-weight: 650; white-space: nowrap; }
+.col-head .acts { margin-left: auto; display: flex; gap: 4px; flex: none; }
+.col-head .sub { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.col-steps { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 12px; border-bottom: 1px solid var(--border); }
+.col-steps button {
+  cursor: pointer; font-size: 12px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+}
+.col-steps button:hover { border-color: var(--ch); }
+.col-steps button.here { border-color: var(--ch); color: var(--ch); font-weight: 600; background: color-mix(in srgb, var(--ch) 10%, transparent); }
+.col-steps button[disabled] { cursor: default; color: var(--faint); background: transparent; }
+.col-steps .gp-sep { flex-basis: 100%; height: 0; }
+.col-steps button.gp { border-color: var(--grade); color: var(--grade); background: var(--grade-bg); font-weight: 600; }
+.col-steps button.gp:hover { border-color: var(--grade); filter: brightness(1.15); }
+.col-steps button.gp.ranked { background: var(--grade); color: var(--bg); }
+.col-steps .gp.none { font-size: 11.5px; padding: 2px 7px; border: 1px dashed var(--grade); border-radius: 6px; color: var(--grade); opacity: 0.7; }
+@keyframes subj-flash { 0%, 60% { box-shadow: 0 0 0 5px var(--grade); } 100% { box-shadow: 0 0 0 2px var(--grade); } }
+mark.subj.flash { animation: subj-flash 1.2s ease-out; }
+.col-steps .none { font-size: 12px; color: var(--faint); }
+.col-activity { border-bottom: 1px solid var(--border); max-height: 168px; overflow: auto; }
+.col-activity:empty { display: none; }
+.col-thread { flex: 1; overflow: auto; padding: 2px 12px 18px; position: relative; overscroll-behavior: contain; }
 
 .avatar {
-  flex: none; width: 34px; height: 34px; border-radius: 50%;
-  display: grid; place-items: center; font-weight: 650; font-size: 15px;
+  flex: none; width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center; font-weight: 650; font-size: 13px;
   background: color-mix(in srgb, var(--ch) 16%, transparent); color: var(--ch);
 }
-.avatar.small { width: 26px; height: 26px; font-size: 12.5px; }
+.avatar.small { width: 22px; height: 22px; font-size: 11px; }
 .ch-telegram { --ch: var(--telegram); }
 .ch-whatsapp { --ch: var(--whatsapp); }
 .ch-slack { --ch: var(--slack); }
 .ch-hark { --ch: var(--hark); }
+.ch-wajo { --ch: var(--wajo); }
+.ch-muse { --ch: var(--muse); }
 .ch-imessage { --ch: var(--imessage); }
+.ch-blind { --ch: var(--muted); }
 .chip {
-  display: inline-block; font-size: 12px; font-weight: 550; padding: 1px 8px; border-radius: 999px;
+  display: inline-block; font-size: 11.5px; font-weight: 550; padding: 0 7px; border-radius: 999px; white-space: nowrap;
   background: color-mix(in srgb, var(--ch, var(--faint)) 14%, transparent); color: var(--ch, var(--muted));
 }
-
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 16px; align-items: start; }
-.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); }
-.agent-head { padding: 16px 18px; border-bottom: 1px solid var(--border); }
-.agent-head .title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
-.agent-head h2 { margin: 0; font-size: 18px; font-weight: 650; }
-.agent-head .handle { color: var(--muted); font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
-.agent-head .actions { margin-left: auto; }
-.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-top: 14px; }
-.stat .label { color: var(--muted); font-size: 12px; }
-.stat .value { font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.stat .value.small { font-size: 14px; font-weight: 550; }
+.busy { font-size: 11px; font-weight: 600; color: var(--ch); background: color-mix(in srgb, var(--ch) 13%, transparent); padding: 0 7px; border-radius: 999px; white-space: nowrap; }
 
 .btn {
-  cursor: pointer; font-size: 13.5px; font-weight: 550; padding: 5px 12px; border-radius: 8px;
+  cursor: pointer; font-size: 12.5px; font-weight: 550; padding: 3px 9px; border-radius: 7px;
   background: var(--surface); border: 1px solid var(--border); color: var(--text);
 }
 .btn:hover:not(:disabled) { border-color: var(--faint); }
 .btn:disabled { cursor: default; color: var(--faint); }
 .btn.danger { color: var(--danger); }
-.btn.primary { background: var(--me); border-color: var(--me); color: var(--me-text); font-weight: 600; padding: 7px 16px; }
+.btn.primary { background: var(--me); border-color: var(--me); color: var(--me-text); font-weight: 600; padding: 6px 14px; font-size: 13.5px; }
 .btn.primary:hover:not(:disabled) { filter: brightness(1.08); border-color: var(--me); }
 .btn.primary:disabled { background: var(--surface-2); border-color: var(--border); color: var(--faint); }
 
-.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 18px; border-bottom: 1px solid var(--border); }
-.toolbar input[type="search"] {
-  flex: 1 1 220px; min-width: 0; font-size: 14px;
-  background: var(--surface-2); border: 1px solid transparent; border-radius: 8px; padding: 7px 10px;
-}
-.toolbar input[type="search"]:focus { outline: none; border-color: var(--faint); }
-.toolbar label { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); cursor: pointer; user-select: none; }
-.toolbar .count { color: var(--faint); font-size: 13px; margin-left: auto; }
-
-.thread { padding: 8px 18px 22px; min-height: 160px; }
-.day { text-align: center; margin: 18px 0 10px; }
-.day span { font-size: 12px; font-weight: 600; color: var(--muted); background: var(--surface-2); padding: 3px 10px; border-radius: 999px; }
-.run { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; color: var(--muted); font-size: 12.5px; }
+.day { text-align: center; margin: 14px 0 8px; }
+.day span { font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--surface-2); padding: 2px 9px; border-radius: 999px; }
+.run { display: flex; align-items: center; gap: 8px; margin: 16px 0 10px; color: var(--muted); font-size: 12px; scroll-margin-top: 6px; }
 .run::before, .run::after { content: ""; flex: 1; border-top: 1px dashed var(--border); }
+.run.first::before, .run.first::after { border-top: 2px solid color-mix(in srgb, var(--ch) 45%, var(--border)); }
 .run strong { color: var(--text); font-weight: 600; }
-.thread-group { margin: 14px 0 18px; padding-left: 12px; border-left: 2px solid color-mix(in srgb, var(--ch) 40%, transparent); }
-.thread-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 4px; font-size: 12.5px; color: var(--muted); }
+.run span { text-align: center; }
+.thread-group { margin: 12px 0 14px; padding-left: 10px; border-left: 2px solid color-mix(in srgb, var(--ch) 40%, transparent); }
+.thread-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; margin: 0 0 4px; font-size: 12px; color: var(--muted); }
 .thread-head .n { font-weight: 650; color: var(--ch); }
 .thread-head .t { color: var(--text); font-weight: 550; min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.msg { display: flex; flex-direction: column; margin: 6px 0; }
+.msg { display: flex; flex-direction: column; margin: 6px 0; position: relative; }
 .msg.me { align-items: flex-end; }
 .msg.agent { align-items: flex-start; }
-.bubble { max-width: min(640px, 86%); padding: 8px 12px; border-radius: 16px; overflow-wrap: anywhere; }
+.bubble { max-width: 94%; padding: 7px 11px; border-radius: 14px; overflow-wrap: anywhere; font-size: 13.5px; }
 .msg.agent .bubble { background: var(--surface-2); border-bottom-left-radius: 5px; }
 .msg.me .bubble { background: var(--me); color: var(--me-text); border-bottom-right-radius: 5px; }
 .msg.me .bubble a { color: var(--me-link); }
 .bubble a { color: var(--ch); }
 .msg.pending .bubble { background: transparent; color: var(--text); border: 1.5px dashed color-mix(in srgb, var(--me) 55%, transparent); }
 .msg.pending .bubble a { color: var(--me); }
+.msg.graded .bubble { background: var(--grade-bg); box-shadow: 0 0 0 3px var(--grade); }
+mark.subj { background: var(--grade-bg); color: inherit; box-shadow: 0 0 0 2px var(--grade); border-radius: 4px; display: block; margin: 6px 0; padding: 2px 5px 4px; }
+.subj-tag { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 11px; font-weight: 700; color: var(--grade); margin-bottom: 2px; white-space: normal; }
+mark.subj { cursor: default; }
+.subj-rank { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-weight: 600; }
+.subj-cur { color: var(--muted); font-weight: 600; }
+.subj-rank.ranked .subj-cur { color: var(--grade); }
+.subj-btns { display: none; align-items: center; gap: 3px; color: var(--muted); }
+mark.subj:hover .subj-btns, mark.subj:focus-within .subj-btns { display: inline-flex; }
+mark.subj:hover .subj-cur { display: none; }
+.subj-btns button { font: inherit; font-size: 11px; min-width: 20px; padding: 1px 5px; border-radius: 5px; border: 1px solid var(--grade); background: var(--surface); color: var(--grade); cursor: pointer; }
+.subj-btns button[aria-pressed="true"] { background: var(--grade); color: var(--bg); }
+.graded-none { margin: 6px 4px 10px; padding: 6px 9px; border: 1px dashed var(--grade); border-radius: 8px; color: var(--grade); font-size: 12px; font-weight: 600; }
+.graded-label { font-size: 11.5px; font-weight: 650; color: var(--grade); margin: 0 0 3px 2px; display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; }
+.graded-label .q { font-weight: 500; color: var(--muted); }
+/* "Grade this one" / "Not this one": shown on hover, to adjust which messages are compared */
+.grade-this { display: none; width: fit-content; margin: 0 0 3px 2px; font-size: 11px; padding: 1px 7px; border-radius: 6px;
+  border: 1px dashed var(--grade); background: var(--surface); color: var(--grade); cursor: pointer; font-weight: 600; }
+.msg.agent:hover .grade-this { display: block; }
+.grade-this:hover { border-style: solid; }
 .text { white-space: pre-wrap; }
 .text.empty { color: var(--faint); font-style: italic; }
 .msg.me .text.empty { color: var(--me-link); }
 .msg.deleted .text { text-decoration: line-through; opacity: 0.7; }
 .quote {
-  font-size: 13px; padding: 4px 8px; margin-bottom: 6px; border-left: 3px solid currentColor;
+  font-size: 12.5px; padding: 4px 8px; margin-bottom: 6px; border-left: 3px solid currentColor;
   opacity: 0.75; white-space: pre-wrap; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
 }
-.preview { margin-top: 8px; padding: 8px 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); font-size: 13px; }
+.preview { margin-top: 8px; padding: 7px 9px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); font-size: 12.5px; }
 .msg.me .preview { background: rgba(255, 255, 255, 0.12); border-color: rgba(255, 255, 255, 0.2); }
-.preview .site { color: var(--muted); font-size: 12px; }
+.preview .site { color: var(--muted); font-size: 11.5px; }
 .msg.me .preview .site { color: var(--me-link); }
 .preview .ptitle { font-weight: 600; }
-.buttons { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.buttons span { font-size: 13px; padding: 4px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ch); }
-.files { margin-top: 6px; font-size: 13px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
+.buttons span { font-size: 12.5px; padding: 3px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--ch); }
+.files { margin-top: 6px; font-size: 12.5px; }
 .files a, .files span { display: inline-block; margin-right: 10px; }
-.reactions { margin-top: 3px; font-size: 13px; color: var(--muted); }
-.meta { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--faint); margin-top: 3px; padding: 0 4px; font-variant-numeric: tabular-nums; }
+.reactions { margin-top: 3px; font-size: 12.5px; color: var(--muted); }
+.meta { display: flex; flex-wrap: wrap; gap: 2px 9px; font-size: 11.5px; color: var(--faint); margin-top: 2px; padding: 0 4px; font-variant-numeric: tabular-nums; }
 .meta .latency { color: var(--ch); font-weight: 550; }
 .meta .warn { color: var(--danger); }
 .meta .live-tag { color: var(--ok); font-weight: 550; }
 .detail { display: none; }
 .show-details .detail { display: inline; }
-.typing { font-size: 12.5px; color: var(--faint); margin: 4px 0 4px 4px; font-style: italic; }
+.typing { font-size: 12px; color: var(--faint); margin: 4px 0 4px 4px; font-style: italic; }
 .typing.now { color: var(--ch); }
-/* A context reset (bench/resets.py): everything below it came after the reset. Looks as in bench/dashboard.html. */
-.reset { margin: 16px 0; padding: 9px 12px; border-left: 3px solid var(--reset); border-radius: 4px 10px 10px 4px;
-  background: color-mix(in srgb, var(--reset) 9%, transparent); font-size: 13.5px; }
+.reset { margin: 14px 0; padding: 8px 11px; border-left: 3px solid var(--reset); border-radius: 0;
+  background: color-mix(in srgb, var(--reset) 9%, transparent); font-size: 13px; }
 .reset-top { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; }
 .reset-mark { color: var(--reset); font-weight: 700; }
-.reset-meta { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.reset-meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .reset-how { margin-top: 2px; }
 .reset-result { margin-top: 3px; color: var(--muted); }
 .reset-result b { font-weight: 600; color: var(--text); }
 .meta .reset-tag { color: var(--reset); font-weight: 550; }
-.notice { text-align: center; margin: 10px 0; font-size: 12.5px; color: var(--muted); }
-.reset-form { padding: 14px 18px; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--reset) 6%, var(--surface)); display: grid; gap: 9px; }
+.notice { text-align: center; margin: 10px 0; font-size: 12px; color: var(--muted); }
+.empty-state { padding: 36px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
+
+.reset-form { padding: 12px 16px; margin-bottom: 12px; background: color-mix(in srgb, var(--reset) 6%, var(--surface)); display: grid; gap: 9px; }
 .reset-form .rf-title { font-weight: 650; }
 .reset-form .rf-title span { color: var(--reset); }
 .reset-form label { display: grid; gap: 3px; font-size: 13px; color: var(--muted); }
 .reset-form textarea, .reset-form input, .reset-form select {
-  font-size: 14px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); min-width: 0; }
+  font-size: 13.5px; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text); min-width: 0; }
 .reset-form textarea { resize: vertical; min-height: 54px; }
 .reset-form .rf-row { display: flex; flex-wrap: wrap; align-items: end; gap: 9px 12px; }
 .reset-form .rf-row label { flex: 1 1 200px; }
 .reset-form .rf-note { font-size: 12.5px; color: var(--muted); }
 .reset-form .rf-err { color: var(--danger); font-size: 13px; font-weight: 550; }
-mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1px; }
 
-/* The send box stays at the bottom of the window while you read. */
+/* Each column's own activity: what this console is sending or recording for that agent */
+.job { padding: 7px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+.job:last-child { border-bottom: 0; }
+.job .row { display: flex; align-items: center; gap: 6px; }
+.job .what { font-weight: 600; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job .what span { font-weight: 450; color: var(--muted); }
+.job .state { font-size: 11px; font-weight: 600; padding: 0 7px; border-radius: 999px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.job .state.running { background: color-mix(in srgb, var(--ch) 14%, transparent); color: var(--ch); }
+.job .state.failed { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
+.job .state.done { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
+.job .status { color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.job .status .err { color: var(--danger); }
+.job .acts { display: flex; gap: 6px; margin-top: 4px; }
+.job .btn { font-size: 11.5px; padding: 1px 8px; }
+.job details { margin-top: 4px; font-size: 11.5px; }
+.job summary { cursor: pointer; color: var(--muted); }
+.job pre { margin: 4px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 180px; overflow: auto; }
+.older { padding: 4px 12px 6px; font-size: 12px; }
+.older summary { cursor: pointer; color: var(--muted); }
+.older .job { padding-left: 0; padding-right: 0; }
+
+/* Email and calendar of the task day */
+.mailcal { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; margin-top: 12px; align-items: start; }
+.box h2 { margin: 0; font-size: 15px; font-weight: 650; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.box h2 small { font-weight: 450; color: var(--faint); font-size: 12px; }
+.box-head { padding: 11px 14px 9px; border-bottom: 1px solid var(--border); display: grid; gap: 6px; }
+.box-head .note { font-size: 12px; color: var(--muted); }
+.box-head .note .err { color: var(--danger); font-weight: 550; }
+.box-head .row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.filter { cursor: pointer; font-size: 12px; padding: 1px 9px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); }
+.filter[aria-pressed="true"] { border-color: var(--text); color: var(--text); font-weight: 600; }
+.box-head .row .btn { margin-left: auto; }
+.list { max-height: 520px; overflow: auto; }
+.item { border-bottom: 1px solid var(--border); }
+.item:last-child { border-bottom: 0; }
+.item summary { cursor: pointer; list-style: none; padding: 7px 14px; display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 0 10px; }
+.item summary::-webkit-details-marker { display: none; }
+.item summary:hover { background: var(--surface-2); }
+.item .t { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; padding-top: 1px; }
+.item .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.item .subj { font-weight: 600; font-size: 13.5px; }
+.item .who { font-size: 12px; color: var(--muted); grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .body { margin: 0 14px 10px 88px; padding: 8px 10px; border-radius: 8px; background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.item .facts { margin: 0 14px 10px 88px; font-size: 12px; color: var(--muted); display: grid; gap: 2px; }
+.kind { font-size: 11px; font-weight: 650; padding: 0 7px; border-radius: 999px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
+.kind.planted { background: color-mix(in srgb, var(--faint) 20%, transparent); }
+.kind.received { color: var(--muse); background: color-mix(in srgb, var(--muse) 13%, transparent); }
+.kind.sent { color: var(--ok); background: color-mix(in srgb, var(--ok) 13%, transparent); }
+.kind.draft, .kind.added { color: var(--grade); background: color-mix(in srgb, var(--grade) 14%, transparent); }
+.list .none { padding: 16px 14px; color: var(--muted); font-size: 13px; }
+
+/* The send box stays at the bottom of the window. */
 .composer {
-  position: sticky; bottom: 0; z-index: 2; padding: 12px 18px 14px;
-  background: var(--surface); border-top: 1px solid var(--border); border-radius: 0 0 14px 14px;
+  position: sticky; bottom: 0; z-index: 3; margin-top: 12px; padding: 10px 16px 12px;
+  background: var(--surface); border: 1px solid var(--border); border-bottom: 0; border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 14px rgba(20, 20, 15, 0.06);
 }
-.to { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.to { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 7px; }
+.to #recipients { display: inline-flex; flex-wrap: wrap; gap: 5px; }
 .to-label { font-size: 13px; color: var(--muted); margin-right: 2px; }
 .recipient {
-  cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 550;
-  padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 550;
+  padding: 2px 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--surface); color: var(--muted);
 }
 .recipient::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ch); opacity: 0.35; }
 .recipient[aria-pressed="true"] { color: var(--ch); border-color: var(--ch); background: color-mix(in srgb, var(--ch) 10%, transparent); }
@@ -252,67 +385,44 @@ mark { background: var(--mark); color: inherit; border-radius: 3px; padding: 0 1
 .recipient.all { color: var(--muted); }
 .recipient.all::before { display: none; }
 textarea#text {
-  display: block; width: 100%; min-height: 64px; max-height: 40vh; resize: vertical;
-  padding: 9px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); line-height: 1.45;
+  display: block; width: 100%; min-height: 38px; max-height: 32vh; resize: vertical; transition: min-height 0.12s;
+  padding: 8px 11px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); line-height: 1.45;
 }
-textarea#text:focus, .options input:focus, .options select:focus { outline: none; border-color: var(--faint); }
-.options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 9px; }
-.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
-.seg button { cursor: pointer; border: 0; background: var(--surface); padding: 4px 11px; font-size: 13.5px; color: var(--muted); }
-.seg button + button { border-left: 1px solid var(--border); }
-.seg button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); font-weight: 600; }
-.options label { font-size: 13.5px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
-.options select, .options input {
-  font-size: 13.5px; padding: 4px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-2);
-}
+textarea#text:focus, textarea#text.filled { min-height: 92px; }
+textarea#text:focus, .to input:focus, .to select:focus { outline: none; border-color: var(--faint); }
+.seg2 { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.seg2 button { cursor: pointer; border: 0; background: var(--surface); padding: 3px 10px; font-size: 13px; color: var(--muted); }
+.seg2 button + button { border-left: 1px solid var(--border); }
+.seg2 button[aria-pressed="true"] { background: var(--surface-2); color: var(--text); font-weight: 600; }
+.to label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.to select, .to input { font-size: 13px; padding: 3px 8px; border-radius: 7px; border: 1px solid var(--border); background: var(--surface-2); }
 .run-fields { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 320px; }
 .run-fields input { flex: 1 1 90px; min-width: 0; }
 .run-fields input#task { flex: 2 1 160px; }
-.options .btn.primary { margin-left: auto; }
-.hint { margin-top: 8px; font-size: 12.5px; color: var(--muted); }
+.to .btn.primary { margin-left: auto; }
+.hint { margin-top: 5px; font-size: 12px; color: var(--muted); }
+.hint:empty { display: none; }
 .hint .err { color: var(--danger); font-weight: 550; }
-.hint kbd { font: 11.5px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; }
-.hint ul { margin: 4px 0 0; padding-left: 18px; }
+.hint kbd { font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 0 4px; border: 1px solid var(--border); border-radius: 4px; }
+.hint ul { margin: 3px 0 0; padding-left: 18px; }
+.blind-note { margin-top: 12px; padding: 10px 14px; font-size: 13px; color: var(--muted); }
 [hidden] { display: none !important; }
 
-.activity { position: sticky; top: 16px; max-height: calc(100vh - 32px); display: flex; flex-direction: column; }
-.activity h2 { margin: 0; padding: 14px 16px 10px; font-size: 15px; font-weight: 650; border-bottom: 1px solid var(--border); }
-.activity h2 small { font-weight: 450; color: var(--faint); font-size: 12.5px; margin-left: 4px; }
-.jobs { overflow: auto; padding: 4px 0; }
-.job { padding: 10px 16px; border-bottom: 1px solid var(--border); }
-.job:last-child { border-bottom: 0; }
-.job .row { display: flex; align-items: center; gap: 8px; }
-.job .what { font-weight: 600; font-size: 14px; min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.job .what span { font-weight: 450; color: var(--muted); }
-.job .state { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; white-space: nowrap; background: var(--surface-2); color: var(--muted); }
-.job .state.running { background: color-mix(in srgb, var(--ch) 14%, transparent); color: var(--ch); }
-.job .state.failed { background: color-mix(in srgb, var(--danger) 14%, transparent); color: var(--danger); }
-.job .state.done { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); }
-.job .excerpt { font-size: 13px; color: var(--text); margin: 4px 0 0 34px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
-.job .status { font-size: 12.5px; color: var(--muted); margin: 3px 0 0 34px; font-variant-numeric: tabular-nums; }
-.job .status .err { color: var(--danger); }
-.job .acts { display: flex; gap: 6px; margin: 6px 0 0 34px; }
-.job .btn { font-size: 12.5px; padding: 2px 9px; }
-.job details { margin: 6px 0 0 34px; font-size: 12px; }
-.job summary { cursor: pointer; color: var(--muted); }
-.job pre { margin: 4px 0 0; padding: 6px 8px; border-radius: 6px; background: var(--surface-2); white-space: pre-wrap; overflow-wrap: anywhere; font: 11.5px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 220px; overflow: auto; }
-.jobs .none { padding: 18px 16px; color: var(--muted); font-size: 13.5px; }
-
-.empty-state { padding: 48px 18px; text-align: center; color: var(--muted); }
-footer { margin-top: 22px; color: var(--muted); font-size: 13px; }
+footer { margin: 16px 0 18px; color: var(--muted); font-size: 12.5px; }
 footer ul { margin: 6px 0 10px; padding-left: 18px; }
-footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; overflow-wrap: anywhere; }
 
 @media (max-width: 960px) {
-  .layout { grid-template-columns: minmax(0, 1fr); }
-  .activity { position: static; max-height: none; }
+  .mailcal { grid-template-columns: minmax(0, 1fr); }
+  .grading { grid-template-columns: minmax(0, 1fr); }
+  .col { height: 78vh; }
 }
 @media (max-width: 560px) {
-  .wrap { padding-top: 20px; }
-  .bubble { max-width: 92%; }
-  .toolbar .count { margin-left: 0; }
+  .wrap { padding: 12px 12px 0; }
+  .columns { grid-template-columns: repeat(var(--n, 4), minmax(86vw, 1fr)); }
   .composer { padding: 10px 12px 12px; }
-  .options .btn.primary { margin-left: 0; width: 100%; }
+  .to .btn.primary { margin-left: 0; width: 100%; }
+  .grading { grid-template-columns: minmax(0, 1fr); }
+  .item .body, .item .facts { margin-left: 14px; }
 }
 </style>
 </head>
@@ -320,79 +430,92 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
 <div class="wrap">
   <header class="top">
     <h1>Agent console</h1>
+    <div class="controls">
+      <select id="session" aria-label="Which task day to show"></select>
+      <label class="blind" title="Hides the agents' names, colors and channels, and shuffles the columns, while you grade"><input type="checkbox" id="blind"> Blind grading</label>
+      <input type="search" id="q" placeholder="Search messages" aria-label="Search messages">
+      <label><input type="checkbox" id="details"> Receipts, edits and working</label>
+    </div>
     <div class="live" id="live"><span class="dot"></span><span id="live-text">Connecting…</span></div>
   </header>
   <div class="banner" id="banner" hidden></div>
-  <div class="tabs" role="tablist" id="tabs"></div>
-  <div class="layout">
-    <section class="panel" id="panel">
-      <div id="head"></div>
-      <form class="reset-form" id="reset-form" autocomplete="off" hidden>
-        <div class="rf-title">Record a context reset for <span id="rf-agent"></span></div>
-        <label>What was done
-          <textarea id="rf-how" rows="2" placeholder="Like: Asked it to forget everything saved about me, and it said done"></textarea></label>
-        <div class="rf-row">
-          <label>How
-            <select id="rf-method">
-              <option value="asked">Asked it to forget</option>
-              <option value="command">Sent a command, like /new</option>
-              <option value="by hand">Did it by hand, outside the chat</option>
-            </select></label>
-          <label>Took effect
-            <select id="rf-after"></select></label>
-        </div>
-        <label>Result, if known
-          <input id="rf-result" placeholder="Like: It says its memory is empty; not checked yet"></label>
-        <div class="rf-note">Nothing is sent: this only writes the reset down, in <code>data/resets.jsonl</code>, so the conversation shows where it happened.</div>
-        <div class="rf-row"><button class="btn primary" type="submit">Record reset</button><button class="btn" type="button" id="rf-cancel">Cancel</button><span class="rf-err" id="rf-err"></span></div>
-      </form>
-      <div class="toolbar">
-        <input type="search" id="q" placeholder="Search messages" aria-label="Search messages">
-        <label><input type="checkbox" id="details"> Receipts, edits and typing</label>
-        <span class="count" id="count"></span>
+  <nav class="steps" id="steps" aria-label="Steps of the task"></nav>
+  <section class="panel grading" id="grading" hidden aria-label="Grading"></section>
+  <form class="panel reset-form" id="reset-form" autocomplete="off" hidden>
+    <div class="rf-title">Record a context reset for <span id="rf-agent"></span></div>
+    <label>What was done
+      <textarea id="rf-how" rows="2" placeholder="Like: Asked it to forget everything saved about me, and it said done"></textarea></label>
+    <div class="rf-row">
+      <label>How
+        <select id="rf-method">
+          <option value="asked">Asked it to forget</option>
+          <option value="command">Sent a command, like /new</option>
+          <option value="by hand">Did it by hand, outside the chat</option>
+        </select></label>
+      <label>Took effect
+        <select id="rf-after"></select></label>
+    </div>
+    <label>Result, if known
+      <input id="rf-result" placeholder="Like: It says its memory is empty; not checked yet"></label>
+    <div class="rf-note">Nothing is sent: this only writes the reset down, in <code>data/resets.jsonl</code>, so the conversation shows where it happened.</div>
+    <div class="rf-row"><button class="btn primary" type="submit">Record reset</button><button class="btn" type="button" id="rf-cancel">Cancel</button><span class="rf-err" id="rf-err"></span></div>
+  </form>
+  <div class="columns" id="columns"></div>
+  <section class="mailcal" id="mailcal">
+    <div class="panel box" aria-label="Email">
+      <div class="box-head">
+        <h2>Email <small id="mail-count"></small></h2>
+        <div class="row" id="mail-filters"></div>
+        <div class="note" id="mail-note"></div>
       </div>
-      <div class="thread" id="thread"></div>
-      <form class="composer" id="composer" autocomplete="off">
-        <div class="to"><span class="to-label">To</span><span id="recipients"></span></div>
-        <textarea id="text" rows="2" placeholder="Write a message" aria-label="Message"></textarea>
-        <div class="options">
-          <div class="seg" role="group" aria-label="What to send">
-            <button type="button" data-mode="message" aria-pressed="true">Message</button>
-            <button type="button" data-mode="run" aria-pressed="false">Task run</button>
-          </div>
-          <label data-mode-only="message">then record replies for
-            <select id="listen">
-              <option value="0">no time</option>
-              <option value="60">1 min</option>
-              <option value="120">2 min</option>
-              <option value="300">5 min</option>
-              <option value="600">10 min</option>
-              <option value="1800">30 min</option>
-            </select>
-          </label>
-          <div class="run-fields" data-mode-only="run" hidden>
-            <input id="task" placeholder="Task, like Travel vF Golden" aria-label="Task (the tab's name in the task sheet)">
-            <input id="step" placeholder="Step, like DAY 1 CHECKPOINT" aria-label="Step (column A)">
-            <input id="cell" placeholder="Cell, like D2" aria-label="Cell the prompt came from">
-          </div>
-          <button class="btn primary" id="send" type="submit" disabled>Send</button>
-        </div>
-        <div class="hint" id="hint" aria-live="polite"></div>
-      </form>
-    </section>
-    <aside class="panel activity" aria-label="Sent from this console">
-      <h2>Sent from this console<small id="jobs-count"></small></h2>
-      <div class="jobs" id="jobs"></div>
-    </aside>
-  </div>
+      <div class="list" id="mail"></div>
+    </div>
+    <div class="panel box" aria-label="Calendar">
+      <div class="box-head">
+        <h2>Calendar <small id="cal-count"></small></h2>
+        <div class="note" id="cal-note"></div>
+      </div>
+      <div class="list" id="cal"></div>
+    </div>
+  </section>
+  <div class="panel blind-note" id="blind-note" hidden>Sending is hidden while you grade blind. Replies can still give an agent away, by its name or its links.</div>
+  <form class="composer" id="composer" autocomplete="off">
+    <div class="to"><span class="to-label">To</span><span id="recipients"></span>
+      <div class="seg2" role="group" aria-label="What to send">
+        <button type="button" data-mode="message" aria-pressed="true">Message</button>
+        <button type="button" data-mode="run" aria-pressed="false">Task run</button>
+      </div>
+      <label data-mode-only="message">then record replies for
+        <select id="listen">
+          <option value="0">no time</option>
+          <option value="60">1 min</option>
+          <option value="120">2 min</option>
+          <option value="300">5 min</option>
+          <option value="600">10 min</option>
+          <option value="1800">30 min</option>
+        </select>
+      </label>
+      <div class="run-fields" data-mode-only="run" hidden>
+        <input id="task" placeholder="Task, like Housewarming draft" aria-label="Task (the tab's name in the task sheet)">
+        <input id="step" placeholder="Step, like DAY 1 CHECKPOINT 1" aria-label="Step (column A)">
+        <input id="cell" placeholder="Cell, like D3" aria-label="Cell the prompt came from">
+      </div>
+      <button class="btn primary" id="send" type="submit" disabled>Send</button>
+    </div>
+    <textarea id="text" rows="1" placeholder="Write a message" aria-label="Message"></textarea>
+    <div class="hint" id="hint" aria-live="polite"></div>
+  </form>
   <footer id="footer"></footer>
 </div>
 
 <script>
 (() => {
   const TOKEN = __CONSOLE_TOKEN__;
-  const CHANNELS = { telegram: 'Telegram', whatsapp: 'WhatsApp', slack: 'Slack', hark: 'Hark (web)', imessage: 'iMessage' };
+  const CHANNELS = { telegram: 'Telegram', whatsapp: 'WhatsApp', slack: 'Slack', hark: 'Hark (web)', wajo: 'Wajo (web)', muse: 'Muse (web)', imessage: 'iMessage' };
   const POLL_MS = 2000;
+  const TASK_MS = 30000;   // the task's rubric, grades and calendar
+  const MAIL_MS = 60000;   // the day's email
+  const EVERYTHING = '*';
   const label = name => name.charAt(0).toUpperCase() + name.slice(1);
   const $ = id => document.getElementById(id);
 
@@ -406,32 +529,43 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
   let version = null;
   let jobs = [];
   let sendable = [];      // agents with a handle, which can be sent to
+  let sessions = [];      // task days, newest first (bench.taskview)
   let dryRun = false;
-  let serverNow = null;   // the console's clock at the last poll, against this browser's
   let clockOffset = 0;
   let connected = null;
   let lastOk = null;
   let watchError = null;
   let details = store.get('details', '0') === '1';
+  let blind = store.get('blind', '0') === '1';
   let query = '';
   let mode = store.get('mode', 'message') === 'run' ? 'run' : 'message';
-  let recipients = null;  // names picked in "To", or null to follow the selected tab
+  let recipients = null;  // names picked in "To", or null for every column
   let sending = false;
   let sendError = '';
-  let threadKey = '';
-  const openLogs = new Map();  // job id → whether its Output is open, once you've toggled it
+  let sessionKey = store.get('session', '');
+  let step = null;        // the step the columns show and that's graded, or null for the whole day
+  let taskInfo = null;    // rubric, grades and calendar of the shown task day
+  let taskInfoKey = '';
+  let taskError = '';
+  let mail = null;
+  let mailKey = '';
+  let mailError = '';
+  let mailLoading = false;
+  let mailFilter = store.get('mailFilter', 'all');
+  let gradeStatus = '';
+  const openItems = new Set();   // email and calendar rows you opened
+  const openLogs = new Map();    // job id → whether its Output is open, once you've toggled it
+  const columnState = new Map(); // agent → {key, jump}
 
   const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const d = iso => new Date(iso);
   const now = () => new Date(Date.now() + clockOffset);
   const time = iso => d(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+  const shortTime = iso => d(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
   const day = iso => d(iso).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
   const dateTime = iso => d(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   const sameDay = (a, b) => d(a).toDateString() === d(b).toDateString();
-  const when = iso => {
-    if (!iso) return '—';
-    return sameDay(iso, now()) ? time(iso) : dateTime(iso);
-  };
+  const when = iso => !iso ? '—' : sameDay(iso, now()) ? time(iso) : dateTime(iso);
   const duration = s => {
     if (s == null) return '—';
     s = Math.round(s);
@@ -445,10 +579,87 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
   const drawn = new WeakMap();
   const setHTML = (el, html) => { if (drawn.get(el) !== html) { el.innerHTML = html; drawn.set(el, html); } };
 
+  // "DAY 1 CHECKPOINT 1" → "CP1", "DAY 1 LEARNING 1" → "Learning 1"; the full name is in the tooltip.
+  function shortStep(s) {
+    if (!s) return 'No step';
+    let m = s.match(/CHECKPOINT\s*(\d+)/i);
+    if (m) return 'CP' + m[1];
+    m = s.match(/LEARNING\s*(\d*)/i);
+    if (m) return ('Learning ' + m[1]).trim();
+    return s.toLowerCase().replace(/^\w/, c => c.toUpperCase());
+  }
+
   // WhatsApp and Slack mark bold with *…*; links become clickable everywhere.
-  function format(text, channel) {
+  // Rank buttons on a highlighted part: they rank that agent's answer at that step (the same rank as in the grading bar)
+  function rankCtlHTML({ agent, step: st, aspect = '' }) {
+    const n = columnAgents().length;
+    const cur = rankOf(st, agent, aspect);
+    const what = aspect ? `${aspect} at ${shortStep(st)}` : shortStep(st);
+    const btns = Array.from({ length: n }, (_, i) => i + 1).map(k =>
+      `<button type="button" data-subj-rank="${k}" data-step="${esc(st)}" data-aspect="${esc(aspect)}" data-agent="${esc(agent)}" aria-pressed="${cur === k}" title="${k === 1 ? 'Best' : k === n ? 'Worst' : 'Rank ' + k} of ${n}: ${esc(what)}">${k}</button>`).join('');
+    return `<span class="subj-rank${cur ? ' ranked' : ''}"><span class="subj-cur">${cur ? `ranked ${cur} of ${n}` : 'not ranked'}</span><span class="subj-btns" role="group" aria-label="Rank this answer">rank: ${btns}</span></span>`;
+  }
+
+  const subjKey = (st, guid, label) => `${st}|${guid}|${label || ''}`;
+
+  // What a step is graded on: the aspects its highlighted parts name (CP1: guest list, invite), or one overall ranking ('')
+  function aspectsOf(st) {
+    const out = [];
+    for (const parts of Object.values(gradeOf(st).excerpts || {})) for (const x of parts) if (x.aspect && !out.includes(x.aspect)) out.push(x.aspect);
+    return out.length ? out : [''];
+  }
+  const rankOf = (st, agent, aspect) => aspect ? ((gradeOf(st).aspect_ranks || {})[aspect] || {})[agent] : (gradeOf(st).ranks || {})[agent];
+
+  // The grading points in a column's step bar: each highlighted part to grade, by step, with the agent's rank there
+  function gradingChipsHTML(name, steps) {
+    const chips = [];
+    for (const st of steps) {
+      const r = rubricOf(st.step);
+      if (!r || !r.subjective) continue;
+      const g = gradeOf(st.step);
+      const parts = ((g.excerpts || {})[name] || []);
+      const seen = new Set();
+      for (const x of parts) {
+        if (seen.has(x.label)) continue;
+        seen.add(x.label);
+        const rank = rankOf(st.step, name, x.aspect || '');
+        chips.push(`<button type="button" class="gp${rank ? ' ranked' : ''}" data-jump-subj="${esc(subjKey(st.step, x.guid, x.label))}" data-step="${esc(st.step)}" title="Go to the part to grade: ${esc(x.label || '')} (${esc(shortStep(st.step))})${rank ? `, ranked ${rank}` : ', not ranked yet'}">★ ${esc(shortStep(st.step))} ${esc(x.label || '')}${rank ? ` · #${rank}` : ''}</button>`);
+      }
+      const marked = (g.marked || {})[name];
+      if (!parts.length && Array.isArray(marked) && !marked.length) {
+        chips.push(`<span class="gp none" title="Nothing in this agent's replies answers ${esc(shortStep(st.step))}'s subjective question">★ ${esc(shortStep(st.step))} nothing to grade</span>`);
+      }
+    }
+    return chips.length ? `<span class="gp-sep" aria-hidden="true"></span>${chips.join('')}` : '';
+  }
+
+  function setRank(st, agent, k, aspect = '') {
+    return saveGrade(st, next => {
+      const ranks = aspect ? (next.aspect_ranks[aspect] = { ...(next.aspect_ranks[aspect] || {}) }) : next.ranks;
+      const was = ranks[agent];
+      if (was === k) { delete ranks[agent]; return; }
+      const holder = Object.keys(ranks).find(n => ranks[n] === k);
+      if (holder) { if (was) ranks[holder] = was; else delete ranks[holder]; }  // the two swap
+      ranks[agent] = k;
+    });
+  }
+
+  // `spans`: [{start, end, label, ctl}] in the raw text, highlighted as the parts to grade
+  function format(text, channel, spans) {
+    if (spans && spans.length) {
+      const out = [];
+      let at = 0;
+      for (const s of spans.slice().sort((a, b) => a.start - b.start)) {
+        if (s.start < at) continue;
+        out.push(format(text.slice(at, s.start), channel));
+        out.push(`<mark class="subj"${s.ctl ? ` data-subj-key="${esc(subjKey(s.ctl.step, s.guid, s.label))}"` : ''}><span class="subj-tag">★ ${esc(s.label || 'Grade this part')}${s.ctl ? rankCtlHTML(s.ctl) : ''}</span>${format(text.slice(s.start, s.end), channel)}</mark>`);
+        at = s.end;
+      }
+      out.push(format(text.slice(at), channel));
+      return out.join('');
+    }
     let h = esc(text);
-    if (channel === 'whatsapp' || channel === 'slack' || channel === 'hark') h = h.replace(/\*{1,2}([^*\n]+?)\*{1,2}/g, '<strong>$1</strong>');
+    if (['whatsapp', 'slack', 'hark', 'wajo', 'muse'].includes(channel)) h = h.replace(/\*{1,2}([^*\n]+?)\*{1,2}/g, '<strong>$1</strong>');
     return h.replace(/https?:\/\/[^\s<]+/g, url => {
       const trail = (url.match(/(?:[.,;:!?)\]]|&quot;|&#39;)+$/) || [''])[0];
       const href = url.slice(0, url.length - trail.length);
@@ -480,6 +691,128 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
       frag.append(node.nodeValue.slice(i));
       node.replaceWith(frag);
     }
+  }
+
+  // MARK: The task day, its columns and names
+
+  const everything = () => sessionKey === EVERYTHING || !sessions.length;
+  const session = () => everything() ? null : (sessions.find(s => s.key === sessionKey) || sessions[0]);
+
+  // A stable shuffle, so blind columns keep their places between polls but differ from step to step.
+  function shuffled(list, seed) {
+    let h = 2166136261;
+    for (const c of seed) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+    const rand = () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+    const out = list.slice();
+    for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; }
+    return out;
+  }
+
+  // The agents shown, in config order (blind: shuffled).
+  function columnAgents() {
+    if (!data) return [];
+    const order = [...new Set([...sendable.map(a => a.name), ...data.agents.map(a => a.name)])];
+    const s = session();
+    let names = s
+      ? [...order.filter(n => s.agents.some(a => a.name === n)), ...s.agents.map(a => a.name).filter(n => !order.includes(n))]
+      : order.filter(n => agentInfo(n) || data.agents.some(a => a.name === n && a.items.some(i => i.type === 'message')));
+    if (blind) names = shuffled(names, (s ? s.key : EVERYTHING) + '|' + (step || ''));
+    return names;
+  }
+
+  const display = name => {
+    if (!blind) return label(name);
+    const i = columnAgents().indexOf(name);
+    return 'Agent ' + (i >= 0 ? String.fromCharCode(65 + i) : '?');
+  };
+  const initial = name => blind ? display(name).slice(-1) : label(name).charAt(0);
+
+  // The conversation an agent had on the channel it used for this task.
+  function entryFor(name) {
+    const s = session();
+    const channel = s ? (s.agents.find(a => a.name === name) || {}).channel : (agentInfo(name) || {}).channel;
+    return data.agents.find(a => a.name === name && a.channel === channel) || data.agents.find(a => a.name === name)
+      || { name, channel: channel || '', handle: '', items: [], stats: {} };
+  }
+
+  // Only the task day: from the agent's first run of it on, on its channel. Each item learns its step.
+  function dayItems(name) {
+    const entry = entryFor(name);
+    const s = session();
+    let items = entry.items.slice();
+    if (s) {
+      const a = s.agents.find(x => x.name === name);
+      const from = a ? d(a.from).getTime() - 2000 : 0;
+      const to = d(s.end).getTime();
+      const runs = new Set(s.steps.flatMap(st => st.runs.map(r => r.run)));
+      items = items.filter(i => i.type === 'run' ? runs.has(i.name)
+        : i.type === 'thread' || (d(i.date).getTime() >= from && d(i.date).getTime() <= to));
+    }
+    const threads = new Set(items.filter(i => i.type === 'message' && i.thread != null).map(i => i.thread));
+    items = items.filter(i => i.type !== 'thread' || threads.has(i.number));
+    let current = s && s.steps.length ? s.steps[0].step : null;
+    const first = new Set();
+    return {
+      entry,
+      items: items.map(i => {
+        if (i.type === 'run' && i.step != null) current = i.step;
+        const out = { ...i, _step: current };
+        if (i.type === 'run' && !first.has(current)) { first.add(current); out._first = true; }
+        return out;
+      }),
+    };
+  }
+
+  const rubricOf = st => taskInfo && taskInfo.session && taskInfo.session.key === (session() || {}).key ? (taskInfo.rubrics.steps || {})[st] : null;
+  const gradeOf = st => (taskInfo && taskInfo.grades && taskInfo.grades[st]) || { ranks: {}, marked: {} };
+  const question = r => {
+    const line = ((r && r.subjective) || '').split('\n').find(l => l.trim()) || '';
+    return line.replace(/^\(\s*\d+\s*[–-]\s*\d+\s*\)\s*/, '');
+  };
+
+  // An agent's turns at a step: its messages between two of yours (Hark answers in several messages).
+  function turnsAt(st, items) {
+    const turns = [];
+    let turn = null;
+    for (const i of items) {
+      if (i.type !== 'message' || i.service || i._step !== st) continue;
+      if (i.from_me) { turn = null; continue; }
+      if (!(i.text || '').trim()) continue;
+      if (!turn) turns.push(turn = []);
+      turn.push(i);
+    }
+    return turns;
+  }
+
+  // The reply graded at a step: the turn holding the message you marked, else its last long turn, else its longest.
+  function gradedPick(name, st, items) {
+    const excerpts = (gradeOf(st).excerpts || {})[name];
+    if (Array.isArray(excerpts) && excerpts.length) {  // only these passages are graded, not the whole reply
+      const spans = new Map();
+      for (const i of items) {
+        if (i.type !== 'message' || i._step !== st || !i.text) continue;
+        for (const x of excerpts.filter(x => x.guid === i.guid)) {
+          const start = i.text.indexOf(x.quote);
+          if (start >= 0) (spans.get(i.guid) || spans.set(i.guid, []).get(i.guid)).push({ start, end: start + x.quote.length, label: x.label, guid: i.guid, aspect: x.aspect || '' });
+        }
+      }
+      const guids = [...spans.keys()];
+      if (guids.length) return { guids, first: guids[0], auto: false, parts: true, spans };
+    }
+    const marked = (gradeOf(st).marked || {})[name];
+    if (Array.isArray(marked)) {  // exactly these messages, in the order shown; [] = nothing to grade here
+      const guids = items.filter(i => i.type === 'message' && i._step === st && marked.includes(i.guid)).map(i => i.guid);
+      return guids.length ? { guids, first: guids[0], auto: false } : { guids: [], first: null, auto: false, none: true };
+    }
+    const turns = turnsAt(st, items);
+    const size = t => t.reduce((n, m) => n + m.text.length, 0);
+    let turn = marked && turns.find(t => t.some(m => m.guid === marked));
+    const auto = !turn;
+    if (!turn) {
+      const long = turns.filter(t => size(t) >= 280);
+      turn = long.length ? long[long.length - 1] : turns.slice().sort((a, b) => size(b) - size(a))[0];
+    }
+    return turn ? { guids: turn.map(m => m.guid), first: turn[0].guid, auto } : null;
   }
 
   // MARK: Jobs
@@ -533,84 +866,38 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     return `<span class="err">${esc(j.error || 'Failed')}</span>${sentNote ? ' · ' + sentNote : '.'}${unsure}`;
   }
 
-  function renderJobs() {
-    const list = jobs.slice().reverse();
-    const active = jobs.filter(j => ACTIVE.has(j.state)).length;
-    $('jobs-count').textContent = active ? ` · ${active} active` : '';
-    setHTML($('jobs'), list.length ? list.map(j => {
-      const what = j.kind === 'run' ? [j.task, j.step].filter(Boolean).join(' · ') : j.kind === 'sync' ? 'bench sync' : '';
-      const stopLabel = j.state === 'queued' ? 'Cancel' : j.stopping ? 'Force stop' : j.kind === 'send' && j.sent_at ? 'Stop recording' : 'Stop';
-      const stateCls = j.state === 'running' ? 'running' : j.state === 'failed' ? 'failed' : j.state === 'done' ? 'done' : '';
-      return `<div class="job ch-${esc(j.channel)}">
-        <div class="row"><span class="avatar small">${esc(label(j.agent).charAt(0))}</span>
-          <span class="what">${esc(label(j.agent))} <span>· ${esc(kindLabel(j))}${what ? ': ' + esc(what) : ''}</span></span>
-          <span class="state ${stateCls}">${esc(j.state)}</span></div>
-        ${j.text ? `<div class="excerpt">${esc(j.text)}</div>` : ''}
-        <div class="status">${jobStatus(j)}</div>
-        ${ACTIVE.has(j.state) ? `<div class="acts"><button class="btn${j.stopping ? ' danger' : ''}" data-stop="${esc(j.id)}" title="${
-          j.state === 'queued' ? 'Take it off the queue; nothing is sent' : j.stopping ? 'End it now, without waiting for it to write its records' : 'Stop as Ctrl-C would; it still writes what it recorded'
-        }">${stopLabel}</button></div>` : ''}
-        ${j.log && j.log.length ? `<details data-job="${esc(j.id)}"${(openLogs.has(j.id) ? openLogs.get(j.id) : j.state === 'failed') ? ' open' : ''}><summary>Output</summary><pre>${esc(j.log.join('\n'))}</pre></details>` : ''}
-      </div>`;
-    }).join('') : `<div class="none">Nothing sent yet. Messages you send are run as <code>bench send</code> or <code>bench run</code>, and show up here.</div>`);
+  function jobHTML(j) {
+    const what = j.kind === 'run' ? [shortStep(j.step || ''), j.task].filter(Boolean).join(' · ') : j.kind === 'sync' ? 'bench sync' : (j.text || '').replace(/\s+/g, ' ').slice(0, 60);
+    const stopLabel = j.state === 'queued' ? 'Cancel' : j.stopping ? 'Force stop' : j.kind === 'send' && j.sent_at ? 'Stop recording' : 'Stop';
+    const stateCls = j.state === 'running' ? 'running' : j.state === 'failed' ? 'failed' : j.state === 'done' ? 'done' : '';
+    return `<div class="job ch-${esc(j.channel)}">
+      <div class="row"><span class="what">${esc(kindLabel(j))}${what ? ` <span>· ${esc(what)}</span>` : ''}</span>
+        <span class="state ${stateCls}">${esc(j.state)}</span></div>
+      <div class="status">${jobStatus(j)}</div>
+      ${ACTIVE.has(j.state) ? `<div class="acts"><button type="button" class="btn${j.stopping ? ' danger' : ''}" data-stop="${esc(j.id)}" title="${
+        j.state === 'queued' ? 'Take it off the queue; nothing is sent' : j.stopping ? 'End it now, without waiting for it to write its records' : 'Stop as Ctrl-C would; it still writes what it recorded'
+      }">${stopLabel}</button></div>` : ''}
+      ${j.log && j.log.length ? `<details data-job="${esc(j.id)}"${(openLogs.has(j.id) ? openLogs.get(j.id) : j.state === 'failed') ? ' open' : ''}><summary>Output</summary><pre>${esc(j.log.join('\n'))}</pre></details>` : ''}
+    </div>`;
   }
 
-  // MARK: Conversation
-
-  // The chosen agent lives here, and in the URL's #hash.
-  let selected = decodeURIComponent(location.hash.slice(1));
-
-  function current() {
-    if (!data) return null;
-    return data.agents.find(a => a.name === selected)
-      || data.agents.find(a => a.items.some(i => i.type === 'message'))
-      || data.agents[0];
+  // A column's activity: what's queued or running for that agent, then its latest finished job; older ones fold away.
+  function activityHTML(name) {
+    if (blind) return '';
+    const mine = jobs.filter(j => j.agent === name).reverse();
+    if (!mine.length) return '';
+    const active = mine.filter(j => ACTIVE.has(j.state));
+    const done = mine.filter(j => !ACTIVE.has(j.state));
+    const shown = [...active, ...done.slice(0, active.length ? 0 : 1)];
+    const rest = done.slice(active.length ? 0 : 1);
+    return shown.map(jobHTML).join('') + (rest.length
+      ? `<details class="older" data-older="${esc(name)}"${openLogs.get('older:' + name) ? ' open' : ''}><summary>${plural(rest.length, 'earlier job')} from this console</summary>${rest.map(jobHTML).join('')}</details>` : '');
   }
 
-  function renderTabs(agent) {
-    setHTML($('tabs'), data.agents.map(a => {
-      const n = a.stats.sent + a.stats.received;
-      const sub = `${CHANNELS[a.channel] || a.channel} · ${plural(n, 'message')}` + (a.stats.last ? ` · last ${when(a.stats.last)}` : '');
-      const busy = jobs.find(j => j.agent === a.name && ACTIVE.has(j.state));
-      const badge = busy ? `<span class="busy">${busy.state === 'queued' ? 'queued' : busy.sent_at ? 'recording' : busy.kind === 'sync' ? 'syncing' : 'sending'}</span>` : '';
-      return `<button class="tab ch-${esc(a.channel)}" role="tab" aria-selected="${a === agent}" data-agent="${esc(a.name)}">
-        <span class="avatar">${esc(label(a.name).charAt(0))}</span>
-        <span class="who"><div class="name">${esc(label(a.name))}${badge}</div><div class="sub">${esc(sub)}</div></span>
-      </button>`;
-    }).join(''));
-  }
+  // MARK: Messages
 
-  function renderHead(agent) {
-    const panel = $('panel');
-    panel.className = `panel ch-${agent ? agent.channel : ''}`;
-    if (!agent) {
-      $('head').innerHTML = `<div class="empty-state">No agents with a handle in config/agents.yaml, and nothing recorded.</div>`;
-      return;
-    }
-    const s = agent.stats;
-    const info = agentInfo(agent.name);
-    const busy = info && laneJob(info.channel);
-    const sync = info && info.can_sync
-      ? `<button class="btn" id="sync" ${busy ? 'disabled' : ''} title="${busy ? `${CHANNELS[info.channel]} is busy: ${esc(label(busy.agent))}'s ${kindLabel(busy).toLowerCase()} is recording` : 'Record what arrived while nothing was recording (bench sync)'}">Sync</button>`
-      : '';
-    const record = info ? `<button class="btn" id="record-reset" title="Write down a reset you did, so the conversation shows where it happened">Record a reset</button>` : '';
-    setHTML($('head'), `<div class="agent-head">
-      <div class="title"><span class="avatar">${esc(label(agent.name).charAt(0))}</span><h2>${esc(label(agent.name))}</h2>
-        <span class="chip">${esc(CHANNELS[agent.channel] || agent.channel)}</span><span class="handle">${esc(agent.handle || '')}</span>
-        <span class="actions">${record} ${sync}</span></div>
-      <div class="stats">
-        <div class="stat"><div class="label">You sent</div><div class="value">${s.sent}</div></div>
-        <div class="stat"><div class="label">${esc(label(agent.name))} sent</div><div class="value">${s.received}</div></div>
-        <div class="stat"><div class="label">Median first reply</div><div class="value">${duration(s.median_reply_seconds)}</div></div>
-        <div class="stat"><div class="label">First message</div><div class="value small">${s.first ? dateTime(s.first) : '—'}</div></div>
-        <div class="stat"><div class="label">Last message</div><div class="value small">${s.last ? dateTime(s.last) : '—'}</div></div>
-        <div class="stat" title="${plural(s.resets, 'context reset')} recorded"><div class="label">Last reset</div><div class="value small">${s.last_reset ? dateTime(s.last_reset) : 'none recorded'}</div></div>
-      </div>
-    </div>`);
-  }
-
-  function threadHTML(t, agent) {
-    const who = t.from_me ? 'You' : label(agent.name);
+  function threadHTML(t, agentName) {
+    const who = t.from_me ? 'You' : display(agentName);
     const facts = [plural(t.messages, 'message')];
     if (t.first_reply_seconds != null) facts.push(`first reply in ${duration(t.first_reply_seconds)}`);
     else if (t.from_me && t.messages === 1) facts.push('no reply');
@@ -621,14 +908,14 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     </div>`;
   }
 
-  function messageHTML(m, agent, showDate = false) {
-    if (m.service) {  // a notice Telegram left in the chat, not a message
-      return `<div class="notice" title="${esc(d(m.date).toString())}">${esc(NOTICES[m.service] || m.service.replace(/_/g, ' '))} · ${showDate ? dateTime(m.date) : time(m.date)}</div>`;
+  function messageHTML(m, entry, opts = {}) {
+    if (m.service) {
+      return `<div class="notice" title="${esc(d(m.date).toString())}">${esc(NOTICES[m.service] || m.service.replace(/_/g, ' '))} · ${opts.showDate ? dateTime(m.date) : time(m.date)}</div>`;
     }
     const parts = [];
     if (m.reply_to_text) parts.push(`<div class="quote">${esc(m.reply_to_text)}</div>`);
     parts.push(m.text
-      ? `<div class="text">${format(m.text, agent.channel)}</div>`
+      ? `<div class="text">${format(m.text, entry.channel, opts.graded && opts.graded.spans)}</div>`
       : `<div class="text empty">${m.attachments.length ? '' : 'no text recorded'}</div>`);
     const p = m.link_preview;
     if (p && (p.title || p.site)) {
@@ -643,11 +930,11 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
         : `<span>📎 ${esc(a.name)} (not downloaded)</span>`).join('')}</div>`);
     }
 
-    const meta = [`<span title="${esc(d(m.date).toString())}">${showDate ? dateTime(m.date) : time(m.date)}</span>`];
+    const meta = [`<span title="${esc(d(m.date).toString())}">${opts.showDate ? dateTime(m.date) : time(m.date)}</span>`];
     if (m.reply_seconds != null) meta.push(`<span class="latency" title="Time since your last message">replied in ${duration(m.reply_seconds)}</span>`);
     if (m.reset) meta.push(`<span class="reset-tag" title="${esc(m.reset)}">part of a reset</span>`);
     if (m.date_deleted || m.date_retracted) meta.push(`<span class="warn">deleted ${time(m.date_deleted || m.date_retracted)}</span>`);
-    const job = m.from_me && jobs.find(j => j.agent === agent.name && sentMatches(j, m));
+    const job = m.from_me && jobs.find(j => j.agent === entry.name && sentMatches(j, m));
     if (job && job.state === 'running' && !job.stopping) meta.push(`<span class="live-tag">${job.kind === 'run' ? 'recording the run' : 'recording replies'}</span>`);
     if (m.from_me) {
       if (m.date_read) meta.push(`<span class="detail">read ${time(m.date_read)}</span>`);
@@ -666,9 +953,16 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     if (m.decoded) meta.push(`<span class="detail" title="Text read from the raw rich response, which was recorded before the bridge decoded it">decoded from raw</span>`);
     if (gap(m.date, m.recorded) > 120) meta.push(`<span class="detail" title="When the pipeline first saw it">recorded ${when(m.recorded)}</span>`);
 
-    const reactions = (m.reactions || []).map(r => r.count != null ? `${esc(r.emoji)} ×${r.count}` : `${esc(r.emoji)} by ${esc(r.by === 'agent' ? label(agent.name) : (r.by || '?'))}`);
-    const cls = ['msg', m.from_me ? 'me' : 'agent', (m.date_deleted || m.date_retracted) ? 'deleted' : ''].join(' ');
-    return `<div class="${cls}">
+    const reactions = (m.reactions || []).map(r => r.count != null ? `${esc(r.emoji)} ×${r.count}` : `${esc(r.emoji)} by ${esc(r.by === 'agent' ? display(entry.name) : (r.by || '?'))}`);
+    const cls = ['msg', m.from_me ? 'me' : 'agent', (m.date_deleted || m.date_retracted) ? 'deleted' : '', opts.graded ? (opts.graded.parts ? 'graded-part' : 'graded') : ''].join(' ');
+    const graded = opts.graded && opts.graded.labelled
+      ? `<div class="graded-label">★ ${opts.graded.parts ? 'Grade only the highlighted part' : opts.graded.auto ? 'Graded' : 'Compare this'} for ${esc(shortStep(m._step))}${opts.graded.auto ? ' (picked: its last long reply)' : ''}${opts.graded.guids.length > 1 ? ` · ${opts.graded.guids.length} messages` : ''}<span class="q">${esc(opts.question || '')}</span></div>` : '';
+    const choose = opts.canGrade && !opts.graded && !opts.partsMode && !m.from_me && m.guid
+      ? `<button type="button" class="grade-this" data-grade-this="${esc(m.guid)}" data-agent="${esc(entry.name)}" title="Compare this message too at ${esc(shortStep(m._step))}">Grade this one</button>` : '';
+    const unchoose = opts.canGrade && opts.graded && !opts.graded.parts && !m.from_me && m.guid
+      ? `<button type="button" class="grade-this" data-ungrade="${esc(m.guid)}" data-agent="${esc(entry.name)}" data-pick="${esc(opts.graded.guids.join(' '))}" title="Stop comparing this message">Not this one</button>` : '';
+    return `<div class="${cls}" data-guid="${esc(m.guid || '')}">
+      ${graded}${choose}${unchoose}
       <div class="bubble">${parts.join('')}</div>
       ${reactions.length ? `<div class="reactions">${reactions.join(' · ')}</div>` : ''}
       <div class="meta">${meta.join('')}</div>
@@ -679,106 +973,350 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
   const sentMatches = (j, m) => j.sent_id != null && j.sent_id === m.id;
 
   // Messages typed here that aren't in the recorded conversation yet: queued, being sent, or (dry run) never sent.
-  function pendingFor(agent) {
-    const recorded = agent.items.filter(i => i.type === 'message' && i.from_me);
-    return jobs.filter(j => j.agent === agent.name && j.kind !== 'sync'
+  function pendingFor(entry) {
+    if (blind) return [];
+    const recorded = entry.items.filter(i => i.type === 'message' && i.from_me);
+    return jobs.filter(j => j.agent === entry.name && j.kind !== 'sync'
       && (ACTIVE.has(j.state) || (dryRun && j.state === 'done'))
       && !recorded.some(m => sentMatches(j, m)));
   }
 
-  function pendingHTML(j, agent) {
+  function pendingHTML(j, entry) {
     const status = j.state === 'queued' ? jobStatus(j) : !j.sent_at ? 'Sending…' : dryRun ? 'Dry run: not sent' : 'Sent; waiting for it to be recorded';
     return `<div class="msg me pending">
-      <div class="bubble"><div class="text">${format(j.text, agent.channel)}</div></div>
+      <div class="bubble"><div class="text">${format(j.text, entry.channel)}</div></div>
       <div class="meta"><span>${esc(status)}</span></div>
     </div>`;
   }
 
-  // "Typing…" from the last few seconds, as it happens.
-  function typingNow(agent) {
-    const last = agent.items[agent.items.length - 1];
+  function typingNow(entry) {
+    const last = entry.items[entry.items.length - 1];
     if (!last || last.type !== 'typing' || gap(last.until, now()) > 20) return '';
     const verb = last.action === 'typing' ? 'typing' : last.action.replace(/_/g, ' ');
-    return `<div class="typing now">${esc(label(agent.name))} is ${esc(verb)}…</div>`;
+    return `<div class="typing now">${esc(display(entry.name))} is ${esc(verb)}…</div>`;
   }
 
-  function renderThread(agent, force = false) {
-    const container = $('thread');
-    if (!agent) { container.innerHTML = ''; $('count').textContent = ''; return; }
-    const pending = pendingFor(agent);
-    const live = typingNow(agent);
-    const key = [version, agent.name, query, details, pending.map(j => j.id + j.state + (j.sent_at || '')).join(','), live].join('|');
-    if (!force && key === threadKey) return;
-    threadKey = key;
-    // Where the window shows the conversation's end, just above the send box.
-    const conversationEnd = () => $('panel').getBoundingClientRect().bottom + window.scrollY - window.innerHeight;
-    const nearBottom = window.scrollY >= conversationEnd() - 240;
+  // MARK: Columns
 
+  function columnSkeleton(name) {
+    const el = document.createElement('section');
+    el.className = 'panel col';
+    el.dataset.agent = name;
+    el.innerHTML = `<div class="col-head"></div><div class="col-steps"></div><div class="col-activity"></div><div class="col-thread"></div>`;
+    return el;
+  }
+
+  function renderColumns(force = false) {
+    const names = columnAgents();
+    const box = $('columns');
+    box.style.setProperty('--n', String(Math.max(1, names.length)));
+    const have = [...box.children].map(c => c.dataset.agent).join('|');
+    if (have !== names.join('|')) {
+      box.innerHTML = '';
+      for (const n of names) box.append(columnSkeleton(n));
+      force = true;
+    }
+    if (!names.length) {
+      box.innerHTML = `<div class="panel empty-state">Nothing recorded for this task day yet.</div>`;
+      return;
+    }
+    for (const el of box.children) renderColumn(el, force);
+  }
+
+  function renderColumn(el, force) {
+    const name = el.dataset.agent;
+    const { entry, items } = dayItems(name);
+    const s = session();
+    const info = agentInfo(name);
+    el.className = `panel col ${blind ? 'ch-blind' : 'ch-' + entry.channel}`;
+
+    // Head: who, how it's reached, and what's running
+    const busy = jobs.find(j => j.agent === name && ACTIVE.has(j.state));
+    const badge = busy && !blind ? `<span class="busy">${busy.state === 'queued' ? 'queued' : busy.sent_at ? 'recording' : busy.kind === 'sync' ? 'syncing' : 'sending'}</span>` : '';
+    const lane = info && laneJob(info.channel);
+    const acts = blind ? '' : [
+      info ? `<button type="button" class="btn" data-reset="${esc(name)}" title="Write down a reset you did, so the conversation shows where it happened">Reset…</button>` : '',
+      info && info.can_sync ? `<button type="button" class="btn" data-sync="${esc(name)}" ${lane ? 'disabled' : ''} title="${lane ? `${CHANNELS[info.channel]} is busy: ${esc(label(lane.agent))}'s ${kindLabel(lane).toLowerCase()} is recording` : 'Record what arrived while nothing was recording (bench sync)'}">Sync</button>` : '',
+    ].join('');
+    const msgs = items.filter(i => i.type === 'message' && (!step || i._step === step));
+    const replies = msgs.map(m => m.reply_seconds).filter(x => x != null).sort((a, b) => a - b);
+    const median = replies.length ? replies[Math.floor((replies.length - 1) / 2)] : null;
+    const sub = [blind ? '' : (CHANNELS[entry.channel] || entry.channel), plural(msgs.length, 'message'), median != null ? `median first reply ${duration(median)}` : ''].filter(Boolean).join(' · ');
+    setHTML(el.querySelector('.col-head'), `<div class="title"><span class="avatar">${esc(initial(name))}</span><h2>${esc(display(name))}</h2>${badge}<span class="acts">${acts}</span></div>
+      <div class="sub" title="${esc(sub)}">${esc(sub)}</div>`);
+
+    // Its own step list: jump to a step in this agent's conversation
+    const steps = s ? s.steps : [];
+    const has = new Set(items.filter(i => i.type === 'run').map(i => i._step));
+    setHTML(el.querySelector('.col-steps'), steps.length ? steps.map(st => {
+      const runs = st.runs.filter(r => r.agent === name).length;
+      return `<button type="button" data-jump="${esc(st.step)}" class="${step === st.step ? 'here' : ''}" ${has.has(st.step) ? '' : 'disabled'} title="${esc(st.step)}${blind ? '' : ': ' + plural(runs, 'run')}${has.has(st.step) ? '' : ' (not in this conversation)'}">${esc(shortStep(st.step))}${runs > 1 && !blind ? ` ×${runs}` : ''}</button>`;
+    }).join('') + gradingChipsHTML(name, steps) : `<span class="none">${s ? 'No steps' : 'Every recorded message, not one task day'}</span>`);
+
+    setHTML(el.querySelector('.col-activity'), activityHTML(name));
+    renderThread(el.querySelector('.col-thread'), name, entry, items, force);
+  }
+
+  function renderThread(container, name, entry, all, force) {
     const q = query.trim().toLowerCase();
-    const total = agent.items.filter(i => i.type === 'message').length;
-    const matching = agent.items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)));
+    const items = step ? all.filter(i => i._step === step) : all;
+    const pending = step ? [] : pendingFor(entry);
+    const live = step ? '' : typingNow(entry);
+    const g = taskInfo ? JSON.stringify(taskInfo.grades || {}) : '';
+    const state = columnState.get(name) || {};
+    const key = [version, sessionKey, step, query, details, blind, g, taskInfoKey, pending.map(j => j.id + j.state + (j.sent_at || '')).join(','), live, items.length].join('|');
+    if (!force && key === state.key) return;
+    const atEnd = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+    const top = container.scrollTop;
+    state.key = key;
+    columnState.set(name, state);
+
+    // Which reply is graded at each step with a subjective question
+    const graded = new Map();
+    const noneAt = new Set();  // steps where this agent has nothing to grade
+    const stepsShown = [...new Set(items.map(i => i._step))];
+    for (const st of stepsShown) {
+      const r = rubricOf(st);
+      if (r && r.subjective) {
+        const pick = gradedPick(name, st, all);
+        if (pick && pick.none) noneAt.add(st);
+        if (pick) for (const guid of pick.guids) graded.set(guid, { ...pick,
+          spans: pick.spans && pick.spans.get(guid).map(sp => ({ ...sp, ctl: { agent: name, step: st, aspect: sp.aspect } })),
+          question: question(r), labelled: guid === pick.first });
+      }
+    }
+    const canGrade = !!(step && rubricOf(step) && rubricOf(step).subjective);
+
+    const matching = items.filter(i => i.type === 'message' && (!q || searchable(i).includes(q)));
     const threadsShown = new Set(matching.map(m => m.thread));
     const matched = new Set(matching);
-    const shown = agent.items.filter(i => i.type === 'message' ? matched.has(i)
+    const shown = items.filter(i => i.type === 'message' ? matched.has(i)
       : i.type === 'thread' ? threadsShown.has(i.number)
       : !q && (i.type === 'run' || i.type === 'reset' || details));
     const out = [];
     let lastDay = null;
-    let thread = null;  // the Slack thread being shown, if any
+    let thread = null;
     for (const item of shown) {
-      if (thread && item.type !== 'message') {
-        out.push('</section>');
-        thread = null;
-      }
+      if (thread && item.type !== 'message') { out.push('</section>'); thread = null; }
       const inThread = thread && item.type === 'message';
       if (!inThread && (!lastDay || !sameDay(lastDay, item.date))) {
         out.push(`<div class="day"><span>${esc(day(item.date))}</span></div>`);
         lastDay = item.date;
       }
       if (item.type === 'thread') {
-        out.push(`<section class="thread-group" aria-label="Thread ${item.number}">` + threadHTML(item, agent));
+        // Blind: no Slack thread headers, which would give Dots away
+        out.push(`<section class="thread-group" aria-label="Thread ${item.number}">` + (blind ? '' : threadHTML(item, name)));
         thread = item;
       } else if (item.type === 'reset') {
         out.push(resetHTML(item));
       } else if (item.type === 'run') {
-        const what = [item.task, item.step].filter(Boolean).map(esc).join(' · ') || esc(item.name);
-        out.push(`<div class="run" title="${esc(item.name)}"><span>Run started ${time(item.date)}: <strong>${what}</strong>${item.cell ? ` (${esc(item.cell)})` : ''}</span></div>`);
+        const what = item.step ? `<strong>${esc(shortStep(item.step))}</strong>` : `<strong>${esc(item.task || item.name)}</strong>`;
+        out.push(`<div class="run${item._first ? ' first' : ''}" ${item._first ? `data-step="${esc(item._step)}"` : ''} title="${esc(item.name)}${item.step ? ' · ' + esc(item.step) : ''}"><span>${item._first ? '' : 'Again: '}${what} run ${shortTime(item.date)}${item.cell ? ` (${esc(item.cell)})` : ''}</span></div>`);
+        if (item._first && noneAt.has(item._step)) out.push(`<div class="graded-none">Nothing to grade at ${esc(shortStep(item._step))}: no reply that answers this question.</div>`);
       } else if (item.type === 'typing') {
         const span = gap(item.date, item.until);
         const verb = item.action === 'typing' ? 'typing' : item.action.replace(/_/g, ' ');
-        out.push(`<div class="typing">${esc(label(agent.name))} ${esc(verb)}… ${time(item.date)}${span >= 1 ? ` for ${duration(span)}` : ''}</div>`);
+        out.push(`<div class="typing">${esc(display(name))} ${esc(verb)}… ${time(item.date)}${span >= 1 ? ` for ${duration(span)}` : ''}</div>`);
       } else {
-        out.push(messageHTML(item, agent, inThread && !sameDay(thread.date, item.date)));
+        const gp = item.guid && graded.get(item.guid);
+        out.push(messageHTML(item, entry, { showDate: inThread && !sameDay(thread.date, item.date), graded: gp || null,
+          question: gp && gp.question, canGrade: canGrade && item._step === step,
+          partsMode: !!(((gradeOf(item._step).excerpts || {})[name] || []).length) }));
       }
     }
     if (thread) out.push('</section>');
     if (!q) {
-      out.push(...pending.map(j => pendingHTML(j, agent)));
+      out.push(...pending.map(j => pendingHTML(j, entry)));
       if (live && !pending.length) out.push(live);
     }
-    const matches = shown.filter(i => i.type === 'message').length;
-    container.className = `thread${details ? ' show-details' : ''}`;
-    container.innerHTML = out.length ? out.join('') : `<div class="empty-state">${q ? 'No messages match.' : 'Nothing recorded yet. Say hello below.'}</div>`;
+    container.classList.toggle('show-details', details);
+    container.innerHTML = out.length ? out.join('') : `<div class="empty-state">${q ? 'No messages match.' : step ? `Nothing at ${esc(shortStep(step))}.` : 'Nothing recorded for this task day.'}</div>`;
     container.querySelectorAll('.text, .preview, .buttons, .files').forEach(el => highlight(el, q));
-    $('count').textContent = q ? `${matches} of ${total} messages` : plural(total, 'message');
-    if (nearBottom || force) window.scrollTo(0, Math.max(0, conversationEnd()));
+
+    if (state.jump) {
+      const target = container.querySelector(`.run[data-step="${CSS.escape(state.jump)}"]`);
+      container.scrollTop = target ? target.offsetTop - 4 : 0;
+      state.jump = null;
+    } else if (force) {
+      container.scrollTop = step ? 0 : container.scrollHeight;
+    } else if (atEnd && !step) {
+      container.scrollTop = container.scrollHeight;
+    } else {
+      container.scrollTop = top;
+    }
+  }
+
+  // MARK: Steps and grading
+
+  function renderSessions() {
+    const options = sessions.map(s => {
+      const dayName = new Date(s.date + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+      return `<option value="${esc(s.key)}">${esc(s.task)} · ${esc(dayName)} · ${plural(s.agents.length, 'agent')}, ${plural(s.runs, 'run')}</option>`;
+    });
+    options.push(`<option value="${EVERYTHING}">Everything recorded, every day</option>`);
+    setHTML($('session'), options.join(''));
+    $('session').value = everything() ? EVERYTHING : session().key;
+  }
+
+  function renderSteps() {
+    const s = session();
+    if (!s) { setHTML($('steps'), ''); $('steps').hidden = true; return; }
+    $('steps').hidden = false;
+    const ranked = st => Math.min(...aspectsOf(st).map(a => columnAgents().filter(n => rankOf(st, n, a)).length));
+    const btns = [`<button type="button" class="step-btn" data-step="" aria-pressed="${!step}">Whole day</button>`,
+      ...s.steps.map(st => {
+        const r = rubricOf(st.step);
+        const done = r && r.subjective && ranked(st.step) >= s.agents.length ? '<span class="ranked" title="Ranked">✓</span>' : '';
+        return `<button type="button" class="step-btn" data-step="${esc(st.step)}" aria-pressed="${step === st.step}" title="${esc(st.step)}${r && r.subjective ? ' · has a subjective grade' : ''}">${esc(shortStep(st.step))}${done}</button>`;
+      })];
+    const info = taskError ? `<span class="info" style="color:var(--danger)">${esc(taskError)}</span>`
+      : taskInfo && taskInfo.rubrics && taskInfo.rubrics.sheet ? `<span class="info">Rubric from <code>${esc(taskInfo.rubrics.sheet)}</code></span>`
+      : taskInfo ? `<span class="info">No tab named “${esc(s.task)}” in tasks/*.xlsx, so no rubric</span>` : '';
+    setHTML($('steps'), `<span class="lbl">Step</span>${btns.join('')}${info}`);
+  }
+
+  function renderGrading() {
+    const s = session();
+    const el = $('grading');
+    if (!s || !step) { el.hidden = true; setHTML(el, ''); return; }
+    el.hidden = false;
+    const r = rubricOf(step);
+    const extra = r ? [['Success criteria', r.success], ['Functional grading', r.functional], ['Prompt', r.prompt]]
+      .filter(([, t]) => t).map(([h, t]) => `<details data-open="${esc(h)}"${openItems.has('g:' + h) ? ' open' : ''}><summary>${esc(h)}</summary><div class="g-text">${esc(t)}</div></details>`).join('') : '';
+    if (!r || !r.subjective) {
+      setHTML(el, `<div class="g-left"><div class="g-top"><span class="g-step">${esc(shortStep(step))}</span>
+        <span class="g-note">${r ? 'No subjective grade at this step.' : 'This step has no row in the task sheet.'}</span></div></div><div class="g-right">${extra}</div>`);
+      return;
+    }
+    const g = gradeOf(step);
+    const names = columnAgents();
+    const n = names.length;
+    const aspects = aspectsOf(step);
+    const rows = aspects.map(aspect => {
+      const cells = names.map(name => {
+        const rank = rankOf(step, name, aspect);
+        const buttons = Array.from({ length: n }, (_, i) => i + 1).map(k =>
+          `<button type="button" data-rank="${k}" data-aspect="${esc(aspect)}" data-agent="${esc(name)}" aria-pressed="${rank === k}" title="${k === 1 ? 'Best' : k === n ? 'Worst' : 'Rank ' + k}${aspect ? ': ' + esc(aspect) : ''}">${k}</button>`).join('');
+        return `<div class="rank ${blind ? 'ch-blind' : 'ch-' + esc(entryFor(name).channel)}"><span class="who">${esc(display(name))}</span><span class="seg" role="group" aria-label="Rank ${esc(display(name))}">${buttons}</span></div>`;
+      }).join('');
+      return aspect ? `<div class="aspect-row"><span class="aspect">★ ${esc(aspect)}</span>${cells}</div>` : cells;
+    }).join('');
+    const rest = r.subjective.split('\n').slice(1).join('\n').trim();
+    const saved = g.updated_at ? `Saved ${dateTime(g.updated_at)}${g.blind ? ', graded blind' : ''} · <code>${esc(taskInfo.grades_dir)}</code>` : 'Not ranked yet';
+    setHTML(el, `<div class="g-left"><div class="g-top"><span class="g-step">${esc(shortStep(step))} · subjective</span><h2>${esc(question(r))}</h2></div>
+      <div class="ranks"><span class="lbl">${aspects.length > 1 ? `Rank each separately, 1 = best` : 'Rank the replies, 1 = best'}</span>${rows}
+        <button type="button" class="btn" data-clear-ranks>Clear</button>
+        <span class="status">${gradeStatus ? gradeStatus : saved}</span></div></div>
+      <div class="g-right">${rest ? `<details data-open="Rubric"${openItems.has('g:Rubric') || !openItems.has('g:Rubric:closed') ? ' open' : ''}><summary>Rubric</summary><div class="g-text">${esc(rest)}</div></details>` : ''}
+      ${extra}</div>`);
+  }
+
+  async function saveGrade(st, change) {
+    const s = session();
+    if (!s) return;
+    const g = gradeOf(st);
+    const next = { ranks: { ...(g.ranks || {}) }, aspect_ranks: { ...(g.aspect_ranks || {}) }, marked: { ...(g.marked || {}) }, excerpts: { ...(g.excerpts || {}) } };
+    change(next);
+    taskInfo.grades[st] = { ...g, ...next };  // shown at once; the saved copy replaces it
+    gradeStatus = 'Saving…';
+    renderAll();
+    try {
+      const out = await api('/api/grade', { task: s.task, date: s.date, step: st, ranks: next.ranks, aspect_ranks: next.aspect_ranks, marked: next.marked, excerpts: next.excerpts, blind });
+      taskInfo.grades[st] = out.grade;
+      gradeStatus = '';
+    } catch (e) {
+      gradeStatus = `<span class="err">Not saved: ${esc(e.message)}</span>`;
+      await loadTask(true);
+    }
+    renderAll();
+  }
+
+  // MARK: Email and calendar
+
+  const KINDS = [['all', 'All'], ['planted', 'Planted'], ['received', 'Received'], ['sent', 'Sent'], ['draft', 'Drafts']];
+
+  function renderMail() {
+    const s = session();
+    $('mailcal').hidden = !s;
+    if (!s) return;
+    const list = (mail && mail.messages) || [];
+    const counts = Object.fromEntries(KINDS.map(([k]) => [k, k === 'all' ? list.length : list.filter(m => m.kind === k).length]));
+    setHTML($('mail-filters'), KINDS.map(([k, t]) => `<button type="button" class="filter" data-mail-filter="${k}" aria-pressed="${mailFilter === k}">${t} ${counts[k]}</button>`).join('')
+      + `<button type="button" class="btn" id="mail-refresh" ${mailLoading ? 'disabled' : ''}>${mailLoading ? 'Reading…' : 'Read again'}</button>`);
+    $('mail-count').textContent = mail ? `${mail.account} · ${s.date}` : '';
+    const note = mailError ? `<span class="err">${esc(mailError)}</span>`
+      : !mail ? (mailLoading ? 'Reading Gmail…' : '')
+      : `Read-only from Gmail at ${shortTime(mail.read_at)}: what was planted, mail from those senders and in their threads, and everything in Sent and Drafts from this day. Nothing else in the inbox is shown.`
+        + (mail.missing_plants && mail.missing_plants.length ? ` <span class="err">Planted but not found: ${esc(mail.missing_plants.join(', '))}.</span>` : '');
+    setHTML($('mail-note'), note);
+    const shown = list.filter(m => mailFilter === 'all' || m.kind === mailFilter);
+    setHTML($('mail'), shown.length ? shown.map(m => {
+      const id = 'm:' + m.message_id;
+      const kind = m.kind === 'planted' ? `planted${m.plant ? ' · ' + m.plant : ''}` : m.kind;
+      const to = [m.to, m.cc && 'cc ' + m.cc].filter(Boolean).join(', ');
+      return `<details class="item" data-item="${esc(id)}"${openItems.has(id) ? ' open' : ''}>
+        <summary><span class="t" title="${esc(d(m.date).toString())}">${shortTime(m.date)}</span>
+          <span class="line"><span class="kind ${esc(m.kind)}">${esc(kind)}</span><span class="subj">${esc(m.subject || '(no subject)')}</span></span>
+          <span class="who">${esc(m.from)}${to ? ' → ' + esc(to) : ''}</span></summary>
+        <div class="body">${m.text ? format(m.text, '') : '<span class="text empty">no text</span>'}</div>
+        <div class="facts"><span>${esc({ inbox: 'In the inbox', sent: 'In Sent', drafts: 'In Drafts' }[m.folder] || m.folder)} · <code>${esc(m.message_id)}</code></span></div>
+      </details>`;
+    }).join('') : `<div class="none">${mailError ? 'No email shown.' : !mail ? '' : mailFilter === 'all' ? 'No email for this task day.' : 'None of these.'}</div>`);
+    renderCalendar();
+  }
+
+  function eventWhen(e) {
+    if (e.all_day || /^\d{4}-\d{2}-\d{2}$/.test(e.start || '')) {
+      const f = x => new Date(x + 'T12:00:00').toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+      const last = e.end ? new Date(new Date(e.end + 'T12:00:00').getTime() - 86400000).toISOString().slice(0, 10) : e.start;
+      return last && last !== e.start ? `${f(e.start)} – ${f(last)}, all day` : `${f(e.start)}, all day`;
+    }
+    const s = d(e.start);
+    const date = s.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+    return `${date}, ${shortTime(e.start)}${e.end ? '–' + shortTime(e.end) : ''}`;
+  }
+
+  function renderCalendar() {
+    const cal = taskInfo && taskInfo.calendar;
+    const events = cal ? cal.events.slice().sort((a, b) => (a.created || '').localeCompare(b.created || '')) : [];
+    $('cal-count').textContent = cal && cal.account ? cal.account : '';
+    setHTML($('cal-note'), !cal ? '' : cal.source === 'read'
+      ? `Events created this day, read by Claude at ${shortTime(cal.read_at)} (${esc(cal.read_by || '')}). The console can't read the calendar itself: ask Claude to read it again, into <code>${esc(cal.file)}</code>.`
+      : `${esc(cal.note || '')} Ask Claude to read the calendar into <code>${esc(cal.file)}</code>.`);
+    setHTML($('cal'), events.length ? events.map(e => {
+      const id = 'c:' + e.id;
+      const by = !e.planted && e.by && !blind ? ` · by ${esc(label(e.by))}` : '';
+      const facts = [e.location && `📍 ${esc(e.location)}`, e.reminders && e.reminders.length && `Reminders: ${esc(e.reminders.join(', '))}`,
+        e.created && `Created ${esc(dateTime(e.created))}${e.updated && e.updated !== e.created ? `, updated ${esc(dateTime(e.updated))}` : ''}`,
+        !e.planted && e.by_why && !blind && esc(e.by_why), `<code>${esc(e.id)}</code>`].filter(Boolean);
+      return `<details class="item" data-item="${esc(id)}"${openItems.has(id) ? ' open' : ''}>
+        <summary><span class="t">${e.created ? shortTime(e.created) : ''}</span>
+          <span class="line"><span class="kind ${e.planted ? 'planted' : 'added'}">${e.planted ? 'planted' : 'added'}${by}</span><span class="subj">${esc(e.summary || '(no title)')}</span></span>
+          <span class="who">${esc(eventWhen(e))}</span></summary>
+        ${e.description ? `<div class="body">${esc(e.description)}</div>` : ''}
+        <div class="facts">${facts.map(f => `<span>${f}</span>`).join('')}</div>
+      </details>`;
+    }).join('') : `<div class="none">${cal ? 'No events.' : ''}</div>`);
   }
 
   // MARK: Composer
 
   function chosen() {
-    const agent = current();
     if (recipients) return recipients.filter(n => agentInfo(n));
-    return agent && agentInfo(agent.name) ? [agent.name] : [];
+    return columnAgents().filter(n => agentInfo(n));
   }
 
   function renderComposer() {
+    $('composer').hidden = blind;
+    $('blind-note').hidden = !blind;
+    if (blind) return;
     const names = chosen();
-    setHTML($('recipients'), sendable.map(a =>
-      `<button type="button" class="recipient ch-${esc(a.channel)}" data-to="${esc(a.name)}" aria-pressed="${names.includes(a.name)}">${esc(label(a.name))}</button>`
-    ).join(' ') + (sendable.length > 1
-      ? ` <button type="button" class="recipient all" data-to="*">${names.length === sendable.length ? 'Only this tab' : 'All'}</button>` : ''));
-    document.querySelectorAll('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+    const cols = columnAgents().filter(n => agentInfo(n));
+    const all = sendable.map(a => a.name);
+    setHTML($('recipients'), all.map(n =>
+      `<button type="button" class="recipient ch-${esc(channelOf(n))}" data-to="${esc(n)}" aria-pressed="${names.includes(n)}">${esc(label(n))}</button>`
+    ).join(' ') + (cols.length > 1 && names.join() !== cols.join() ? ` <button type="button" class="recipient all" data-to="*">Every column</button>` : ''));
+    document.querySelectorAll('.seg2 button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
     document.querySelectorAll('[data-mode-only]').forEach(el => { el.hidden = el.dataset.modeOnly !== mode; });
 
     const text = $('text').value;
@@ -786,20 +1324,15 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     const who = names.length === 1 ? label(names[0]) : plural(names.length, 'agent');
     $('send').textContent = sending ? 'Sending…' : mode === 'run' ? `Start run for ${who}` : `Send to ${who}`;
     $('send').disabled = sending || !names.length || !text.trim() || (mode === 'run' && !task);
-    $('text').placeholder = names.length === 1 ? `Message ${label(names[0])}` : names.length ? `Message ${names.map(label).join(', ')}` : 'Pick who to send to';
+    $('text').placeholder = names.length === 1 ? `Message ${label(names[0])}` : names.length ? `Message ${names.map(label).join(', ')} (the same words to each)` : 'Pick who to send to';
 
     const lines = [];
-    const agent = current();
-    if (agent && !agentInfo(agent.name) && !recipients) {
-      lines.push(`${esc(label(agent.name))} has no handle in config/agents.yaml, so it can't be sent to. Pick someone above.`);
-    }
-    // A message that's only being listened to makes way for the next one; anything else is waited for.
     for (const n of names) {
       const ch = channelOf(n);
       const ahead = laneJob(ch);
       const queued = jobs.filter(j => j.channel === ch && j.state === 'queued').length;
       if (ahead && ahead.kind === 'run') {
-        lines.push(`${esc(label(n))}: waits for ${esc(label(ahead.agent))}'s task run to finish. You can stop it on the right.`);
+        lines.push(`${esc(label(n))}: waits for ${esc(label(ahead.agent))}'s task run to finish. You can stop it in ${esc(label(ahead.agent))}'s column.`);
       } else if (queued) {
         lines.push(`${esc(label(n))}: waits behind ${plural(queued, 'job')} queued on ${esc(CHANNELS[ch])}.`);
       }
@@ -810,8 +1343,10 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
       const quiet = names.map(n => `${label(n)} ${duration(agentInfo(n).quiet_period_seconds)}`).join(', ');
       lines.push(`Records until ${names.length > 1 ? 'each agent' : 'it'} has been quiet for ${quiet ? 'its quiet period (' + esc(quiet) + ')' : 'its quiet period'}, then writes <code>runs/…/</code>. Task, step and cell go in its run.json.`);
     }
-    const intro = sendError ? `<span class="err">${esc(sendError)}</span>` :
-      dryRun ? 'Dry run: nothing is sent.' : `Sent exactly as written, as <code>bench ${mode === 'run' ? 'run' : 'send'}</code> would. <kbd>⌘</kbd> <kbd>↩</kbd> sends.`;
+    const focused = document.activeElement === $('text') || text.trim();
+    const intro = sendError ? `<span class="err">${esc(sendError)}</span>` : dryRun ? 'Dry run: nothing is sent.'
+      : focused ? `Sent exactly as written, as <code>bench ${mode === 'run' ? 'run' : 'send'}</code> would. <kbd>⌘</kbd> <kbd>↩</kbd> sends.` : '';
+    $('text').classList.toggle('filled', !!text.trim());
     setHTML($('hint'), intro + (lines.length ? `<ul>${lines.map(l => `<li>${l}</li>`).join('')}</ul>` : ''));
   }
 
@@ -831,7 +1366,7 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
   async function send() {
     const names = chosen();
     const text = $('text').value;
-    if (sending || !names.length || !text.trim()) return;
+    if (sending || blind || !names.length || !text.trim()) return;
     sending = true;
     sendError = '';
     renderComposer();
@@ -852,14 +1387,15 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
 
   // MARK: Updates
 
-  function renderAll(forceThread = false) {
+  function renderAll(force = false) {
     if (!data) return;
-    const agent = current();
-    renderTabs(agent);
-    renderHead(agent);
+    if (step && !(session() && session().steps.some(s => s.step === step))) step = null;
+    renderSessions();
+    renderSteps();
+    renderGrading();
     renderComposer();
-    renderJobs();
-    renderThread(agent, forceThread);  // last, so it scrolls to the end with everything else in place
+    renderColumns(force);
+    renderMail();
   }
 
   function renderLive() {
@@ -874,21 +1410,71 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     $('banner').hidden = !banner.length;
   }
 
+  async function loadTask(quiet = false) {
+    const s = session();
+    if (!s) { taskInfo = null; taskInfoKey = ''; return; }
+    try {
+      taskInfo = await api(`/api/task?task=${encodeURIComponent(s.task)}&date=${encodeURIComponent(s.date)}`);
+      taskInfoKey = s.key + '@' + Date.now();
+      taskError = '';
+    } catch (e) {
+      taskError = `Couldn't load the task: ${e.message}`;
+    }
+    if (!quiet) renderAll();
+  }
+
+  async function loadMail(fresh = false) {
+    const s = session();
+    if (!s || mailLoading) return;
+    const key = s.key;
+    mailLoading = true;
+    renderMail();
+    try {
+      const out = await api(`/api/mail?task=${encodeURIComponent(s.task)}&date=${encodeURIComponent(s.date)}${fresh ? '&fresh=1' : ''}`);
+      if ((session() || {}).key === key) { mail = out; mailKey = key; mailError = ''; }
+    } catch (e) {
+      if ((session() || {}).key === key) mailError = e.message;
+    }
+    mailLoading = false;
+    renderMail();
+  }
+
+  function sessionChanged() {
+    const s = session();
+    step = s ? (store.get('step:' + s.key, '') || null) : null;
+    taskInfo = null; taskError = '';
+    mail = null; mailError = ''; mailKey = '';
+    columnState.clear();
+    if (s) {
+      if (!$('task').value) { $('task').value = s.task; store.set('task', s.task); }
+      loadTask();
+      loadMail();
+    }
+    renderAll(true);
+  }
+
   async function poll() {
     try {
-      const s = await api('/api/state' + (version != null ? `?since=${version}` : ''));
+      const st = await api('/api/state' + (version != null ? `?since=${version}` : ''));
       const first = !data;
-      if (s.snapshot) data = s.snapshot;
-      version = s.version;
-      jobs = s.jobs;
-      sendable = s.agents;
-      dryRun = s.dry_run;
-      watchError = s.error;
-      clockOffset = d(s.now) - Date.now();
+      if (st.snapshot) data = st.snapshot;
+      version = st.version;
+      jobs = st.jobs;
+      sendable = st.agents;
+      dryRun = st.dry_run;
+      watchError = st.error;
+      const before = (session() || {}).key;
+      sessions = st.tasks || [];
+      clockOffset = d(st.now) - Date.now();
       connected = true;
       lastOk = new Date().toISOString();
-      if (first) renderFooter();
-      renderAll(first);
+      if (first) {
+        renderFooter();
+        sessionChanged();
+      } else {
+        if ((session() || {}).key !== before) sessionChanged();
+        else renderAll();
+      }
     } catch (e) {
       connected = false;
     }
@@ -897,38 +1483,147 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
 
   function renderFooter() {
     const sources = data.sources.map(s => `<li>${esc(CHANNELS[s.channel] || s.channel)}: <code>${esc(s.path)}</code></li>`).join('');
-    $('footer').innerHTML = `This page updates by itself while <code>uv run bench console</code> is running. Each message is sent by running
-      <code>bench send</code> (or <code>bench run</code> for a task run), and its prompt and output are kept in <code>data/console/</code>.
-      Telegram, Slack and Hark messages that arrive while nothing is recording show up after a Sync. Recorded from:
-      ${sources ? `<ul>${sources}</ul>` : ''}`;
+    $('footer').innerHTML = `This page updates by itself while <code>uv run bench console</code> is running. A task day is every run of one task
+      (run.json's <code>task</code>) that started on one date; each column holds only that agent's conversation from its first run of it on.
+      Each message is sent by running <code>bench send</code> (or <code>bench run</code> for a task run), and its prompt and output are kept in
+      <code>data/console/</code>. Rankings are saved in <code>data/grades/</code>. Telegram, Slack and Hark messages that arrive while nothing
+      is recording show up after a Sync. Recorded from: ${sources ? `<ul>${sources}</ul>` : ''}`;
   }
 
   // MARK: Events
 
-  $('tabs').addEventListener('click', e => {
-    const tab = e.target.closest('.tab');
-    if (!tab) return;
-    selected = tab.dataset.agent;
-    try { history.replaceState(null, '', '#' + encodeURIComponent(selected)); } catch (err) {}
-    if (recipients && recipients.length <= 1) recipients = null;  // a single pick follows the tab
-    if (resetFor && resetFor !== selected) closeResetForm();
+  $('session').addEventListener('change', e => {
+    sessionKey = e.target.value;
+    store.set('session', sessionKey);
+    sessionChanged();
+  });
+  $('steps').addEventListener('click', e => {
+    const b = e.target.closest('[data-step]');
+    if (!b) return;
+    step = b.dataset.step || null;
+    const s = session();
+    if (s) store.set('step:' + s.key, step || '');
+    gradeStatus = '';
+    columnState.clear();
+    renderAll(true);
+    // Bring each column's first message to compare (or its "nothing to grade" note) into view
+    if (step) for (const col of document.querySelectorAll('section.col[data-agent]')) {
+      const target = col.querySelector('mark.subj, .msg.graded, .graded-none');
+      const thread = col.querySelector('.col-thread');
+      if (target && thread) thread.scrollTop += target.getBoundingClientRect().top - thread.getBoundingClientRect().top - 40;
+    }
+  });
+  $('blind').checked = blind;
+  $('blind').addEventListener('change', e => {
+    blind = e.target.checked;
+    store.set('blind', blind ? '1' : '0');
+    if (blind) closeResetForm();
     renderAll(true);
   });
-  window.addEventListener('hashchange', () => {
-    selected = decodeURIComponent(location.hash.slice(1));
-    renderAll(true);
+  $('grading').addEventListener('click', e => {
+    const r = e.target.closest('[data-rank]');
+    if (r) {
+      return setRank(step, r.dataset.agent, Number(r.dataset.rank), r.dataset.aspect || '');
+    }
+    if (e.target.closest('[data-clear-ranks]')) return saveGrade(step, next => { next.ranks = {}; next.aspect_ranks = {}; });
   });
+  $('grading').addEventListener('toggle', e => {
+    const h = e.target.dataset && e.target.dataset.open;
+    if (!h) return;
+    if (e.target.open) { openItems.add('g:' + h); openItems.delete('g:' + h + ':closed'); }
+    else { openItems.delete('g:' + h); openItems.add('g:' + h + ':closed'); }
+  }, true);
+  $('columns').addEventListener('click', async e => {
+    const sr = e.target.closest('[data-subj-rank]');
+    if (sr) { e.preventDefault(); return setRank(sr.dataset.step, sr.dataset.agent, Number(sr.dataset.subjRank), sr.dataset.aspect || ''); }
+    const gj = e.target.closest('[data-jump-subj]');
+    if (gj) {
+      const name = gj.closest('.col').dataset.agent, st = gj.dataset.step, key = gj.dataset.jumpSubj;
+      if (step && step !== st) {
+        step = st;
+        const s = session();
+        if (s) store.set('step:' + s.key, step);
+        columnState.clear();
+        renderAll(true);
+      }
+      const col = document.querySelector(`section.col[data-agent="${CSS.escape(name)}"]`);
+      const mark = col && col.querySelector(`mark.subj[data-subj-key="${CSS.escape(key)}"]`);
+      const thread = col && col.querySelector('.col-thread');
+      if (mark && thread) {
+        thread.scrollTop += mark.getBoundingClientRect().top - thread.getBoundingClientRect().top - 40;
+        mark.classList.remove('flash'); void mark.offsetWidth; mark.classList.add('flash');
+      }
+      return;
+    }
+    const jump = e.target.closest('[data-jump]');
+    if (jump) {
+      const col = jump.closest('.col');
+      const name = col.dataset.agent;
+      const st = jump.dataset.jump;
+      if (step && step !== st) {  // the columns show another step: show the whole day, then go there
+        step = null;
+        const s = session();
+        if (s) store.set('step:' + s.key, '');
+        columnState.clear();
+        columnState.set(name, { jump: st });
+        return renderAll(true);
+      }
+      const target = col.querySelector(`.run[data-step="${CSS.escape(st)}"]`);
+      const thread = col.querySelector('.col-thread');
+      if (target) thread.scrollTop = target.offsetTop - 4;
+      return;
+    }
+    const g = e.target.closest('[data-grade-this]');
+    if (g) return saveGrade(step, next => {
+      const cur = next.marked[g.dataset.agent];
+      next.marked[g.dataset.agent] = Array.isArray(cur) ? [...new Set([...cur, g.dataset.gradeThis])] : [g.dataset.gradeThis];
+    });
+    const ug = e.target.closest('[data-ungrade]');
+    if (ug) return saveGrade(step, next => {
+      const cur = next.marked[ug.dataset.agent];
+      const base = Array.isArray(cur) ? cur : (ug.dataset.pick || '').split(' ').filter(Boolean);
+      next.marked[ug.dataset.agent] = base.filter(x => x !== ug.dataset.ungrade);
+    });
+    const stop = e.target.closest('[data-stop]');
+    if (stop) {
+      stop.disabled = true;
+      try { await api('/api/stop', { job: stop.dataset.stop }); } catch (err) { /* it finished meanwhile; the next poll shows it */ }
+      return poll();
+    }
+    const sync = e.target.closest('[data-sync]');
+    if (sync) {
+      sync.disabled = true;
+      try { await api('/api/sync', { agent: sync.dataset.sync }); } catch (err) { sendError = `Couldn't sync: ${err.message}`; }
+      return poll();
+    }
+    const reset = e.target.closest('[data-reset]');
+    if (reset) openResetForm(entryFor(reset.dataset.reset));
+  });
+  $('columns').addEventListener('toggle', e => {
+    if (e.target.dataset && e.target.dataset.job) openLogs.set(e.target.dataset.job, e.target.open);
+    if (e.target.dataset && e.target.dataset.older) openLogs.set('older:' + e.target.dataset.older, e.target.open);
+  }, true);
+  $('mailcal').addEventListener('click', e => {
+    const f = e.target.closest('[data-mail-filter]');
+    if (f) { mailFilter = f.dataset.mailFilter; store.set('mailFilter', mailFilter); renderMail(); return; }
+    if (e.target.id === 'mail-refresh') loadMail(true);
+  });
+  $('mailcal').addEventListener('toggle', e => {
+    const id = e.target.dataset && e.target.dataset.item;
+    if (id) e.target.open ? openItems.add(id) : openItems.delete(id);
+  }, true);
+
   // MARK: Recording a reset
 
   let resetFor = null;  // the agent the open form is for
 
-  function openResetForm(agent) {
-    resetFor = agent.name;
-    $('rf-agent').textContent = label(agent.name);
-    const recent = agent.items.filter(i => i.type === 'message').sort((a, b) => d(b.date) - d(a.date)).slice(0, 15);
+  function openResetForm(entry) {
+    resetFor = entry.name;
+    $('rf-agent').textContent = label(entry.name);
+    const recent = entry.items.filter(i => i.type === 'message').sort((a, b) => d(b.date) - d(a.date)).slice(0, 15);
     $('rf-after').innerHTML = recent.map(m => {
       const what = m.service ? (NOTICES[m.service] || m.service) : (m.text || 'no text').replace(/\s+/g, ' ').slice(0, 60);
-      return `<option value="${esc(m.guid)}">Right after ${esc(when(m.date))} · ${esc(m.from_me ? 'You' : label(agent.name))}: ${esc(what)}</option>`;
+      return `<option value="${esc(m.guid)}">Right after ${esc(when(m.date))} · ${esc(m.from_me ? 'You' : label(entry.name))}: ${esc(what)}</option>`;
     }).join('') + '<option value="">Now</option>';
     $('rf-err').textContent = '';
     $('reset-form').hidden = false;
@@ -955,19 +1650,12 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     }
   });
 
-  $('head').addEventListener('click', async e => {
-    if (e.target.id === 'record-reset') return openResetForm(current());
-    if (e.target.id !== 'sync') return;
-    e.target.disabled = true;
-    try { await api('/api/sync', { agent: current().name }); } catch (err) { sendError = `Couldn't sync: ${err.message}`; }
-    await poll();
-  });
   $('recipients').addEventListener('click', e => {
     const b = e.target.closest('[data-to]');
     if (!b) return;
     const names = chosen();
     if (b.dataset.to === '*') {
-      recipients = names.length === sendable.length ? null : sendable.map(a => a.name);
+      recipients = null;
     } else {
       const n = b.dataset.to;
       recipients = names.includes(n) ? names.filter(x => x !== n) : sendable.map(a => a.name).filter(x => x === n || names.includes(x));
@@ -975,7 +1663,7 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     sendError = '';
     renderComposer();
   });
-  document.querySelector('.seg').addEventListener('click', e => {
+  document.querySelector('.seg2').addEventListener('click', e => {
     const b = e.target.closest('[data-mode]');
     if (!b) return;
     mode = b.dataset.mode;
@@ -987,6 +1675,8 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send(); }
   });
   $('text').addEventListener('input', () => { sendError = ''; store.set('draft', $('text').value); renderComposer(); });
+  $('text').addEventListener('focus', () => renderComposer());
+  $('text').addEventListener('blur', () => renderComposer());
   for (const id of ['task', 'step', 'cell']) {
     $(id).value = store.get(id, '');
     $(id).addEventListener('input', () => { store.set(id, $(id).value); renderComposer(); });
@@ -995,26 +1685,18 @@ footer code, .hint code, .jobs code, .reset-form code { font-family: ui-monospac
   if (!$('listen').value) $('listen').value = '300';
   $('listen').addEventListener('change', () => store.set('listen', $('listen').value));
   $('text').value = store.get('draft', '');
-  $('q').addEventListener('input', e => { query = e.target.value; renderThread(current()); });
+  $('q').addEventListener('input', e => { query = e.target.value; renderColumns(); });
   $('details').checked = details;
   $('details').addEventListener('change', e => {
     details = e.target.checked;
     store.set('details', details ? '1' : '0');
-    renderThread(current(), false);
-  });
-  $('jobs').addEventListener('toggle', e => {
-    if (e.target.dataset && e.target.dataset.job) openLogs.set(e.target.dataset.job, e.target.open);
-  }, true);
-  $('jobs').addEventListener('click', async e => {
-    const b = e.target.closest('[data-stop]');
-    if (!b) return;
-    b.disabled = true;
-    try { await api('/api/stop', { job: b.dataset.stop }); } catch (err) { /* it finished meanwhile; the next poll shows it */ }
-    await poll();
+    renderColumns();
   });
 
   poll();
   setInterval(poll, POLL_MS);
+  setInterval(() => loadTask(), TASK_MS);
+  setInterval(() => loadMail(), MAIL_MS);
 })();
 </script>
 </body>

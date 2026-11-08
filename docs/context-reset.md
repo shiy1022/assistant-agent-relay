@@ -94,7 +94,7 @@ An agent saying "I don't remember" proves nothing. It may still use the fact, or
 
 ## Recording a reset
 
-Write down every reset, and every attempt, as soon as it's done: `uv run bench reset-log AGENT --how "…" --after MESSAGE`, or **Record a reset** in the console. It then shows where it took effect in `data/conversations/<agent>.jsonl`, in run transcripts, and in the dashboard and the console. Each later run's `run.json` names it under `context`, with how many messages and runs came after it. Clearing a Telegram chat is found by itself. See [Context resets](../README.md#context-resets).
+Write down every reset, and every attempt, as soon as it's done: `uv run bench reset-log AGENT --how "…" --after MESSAGE`, or **Reset…** in the agent's column in the console. It then shows where it took effect in `data/conversations/<agent>.jsonl`, in run transcripts, and in the dashboard and the console. Each later run's `run.json` names it under `context`, with how many messages and runs came after it. Clearing a Telegram chat is found by itself. See [Context resets](../README.md#context-resets).
 
 The quick tests of 2026-10-25 are written down already, timed by their messages. Deleting the chats on wajo.ai left no message, so it's placed at the latest it can have been, just before the next question at 15:34.
 

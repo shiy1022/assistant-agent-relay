@@ -18,6 +18,14 @@ a channel whose last message has gone out and is only being listened to, that
 listening is stopped so the new message goes out now. A task run is never cut
 short: the new message waits for it.
 
+It opens on a task day: every run of one task (run.json's "task") that started
+on one date, like tonight's "Housewarming draft". Each agent that ran it gets a
+column of its own, side by side, holding only that day's conversation from the
+task's first run on. Above them, the step's rubric from the task sheet and your
+ranking of the agents' replies (bench.taskview, saved in data/grades/). Below,
+the day's email that belongs to the task, read-only over IMAP (bench.mailview),
+and the calendar events created that day.
+
 Whenever an agent's reply with a link is recorded, the page behind the link
 is saved for grading, by bench.snapshots: into the agent's latest run, as it
 looked then. That's off in --dry-run.
@@ -40,12 +48,12 @@ import time
 import urllib.parse
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from bench import conversation, dashboard, resets, snapshots
+from bench import conversation, dashboard, mailview, resets, snapshots, taskview
 from bench.config import CHANNELS, PRIVATE_DIR, ROOT, Agent, load_agents
 from bench.inbox import inbox_path
 
@@ -53,7 +61,7 @@ PORT = 8787
 JOBS_DIR = ROOT / "data" / "console"  # data/ is never committed
 TOKEN_FILE = PRIVATE_DIR / "console" / "token"
 TEMPLATE = Path(__file__).with_name("console.html")
-SENDABLE = ("telegram", "whatsapp", "slack", "hark")  # iMessage is parked
+SENDABLE = ("telegram", "whatsapp", "slack", "hark", "wajo", "muse")  # iMessage is parked
 MAX_TEXT = 40_000          # characters in one message
 MAX_LISTEN = 3600          # seconds a message may keep recording after it's sent
 MAX_BODY = 1_000_000       # bytes in one request
@@ -62,6 +70,7 @@ SENT_SKEW = timedelta(seconds=5)  # a sent message can be stamped a little befor
 STOP_GRACE = 30            # seconds running jobs get to write their records when the console stops
 LOG_LINES = 200            # output lines kept in memory per job (all of it is in output.log)
 SNAPSHOT_SETTLE = 5        # seconds to let a reply's records land before saving its links' pages
+MAIL_SECONDS = 60          # how long the day's mail is kept before Gmail is read again
 COOKIE = "agent_console_token"
 
 # Stands in for bench in --dry-run: says what it would have run, and sends nothing.
@@ -134,7 +143,9 @@ class Console:
 
     def __init__(self, agents: dict[str, Agent] | None = None, *, jobs_dir: Path = JOBS_DIR,
                  python: str = sys.executable, dry_run: bool = False, inboxes: dict[str, Path] | None = None,
-                 runs_dir: Path = dashboard.RUNS_DIR, resets_file: Path | None = None, snapshot_links: bool | None = None):
+                 runs_dir: Path = dashboard.RUNS_DIR, resets_file: Path | None = None, snapshot_links: bool | None = None,
+                 tasks_dir: Path = taskview.TASKS_DIR, grades_dir: Path = taskview.GRADES_DIR,
+                 calendar_dir: Path = taskview.CALENDAR_DIR, mail_reader=None):
         self.all_agents = load_agents() if agents is None else agents
         self.agents = {n: a for n, a in self.all_agents.items() if a.channel in SENDABLE}
         self.jobs_dir = jobs_dir
@@ -144,6 +155,12 @@ class Console:
         self.inboxes = inboxes or {c: inbox_path(c) for c in CHANNELS}
         self.runs_dir = runs_dir
         self.resets_file = resets_file or resets.RESETS_FILE
+        self.tasks_dir, self.grades_dir, self.calendar_dir = tasks_dir, grades_dir, calendar_dir
+        # Reads a day's task mail (bench.mailview); only for the real inboxes, unless a test gives one
+        self.mail_reader = mail_reader or (mailview.read_day if self.live else None)
+        self.mail_lock = threading.Lock()  # one Gmail session at a time
+        self.mail_cache: dict[tuple[str, str], tuple[float, dict]] = {}
+        self.sessions: list[dict] = []
         self.lock = threading.Condition()
         self.refreshing = threading.Lock()  # one snapshot at a time
         self.jobs: list[Job] = []
@@ -285,6 +302,7 @@ class Console:
                 "dry_run": self.dry_run,
                 "now": now_iso(),
                 "error": self.watch_error,
+                "tasks": self.sessions,
             }
 
     def close(self, grace: float = STOP_GRACE) -> list[Job]:
@@ -422,6 +440,7 @@ class Console:
             signature = self._signature()
             if signature != self.signature:
                 snap = dashboard.snapshot(self.all_agents, self.inboxes, self.runs_dir, resets_file=self.resets_file)
+                sessions = taskview.sessions(self.runs_dir)
                 for agent in snap["agents"]:
                     for item in agent["items"]:
                         for a in item.get("attachments") or []:
@@ -430,6 +449,7 @@ class Console:
                                     {"path": urllib.parse.unquote(urllib.parse.urlsplit(a["url"]).path)})
                 with self.lock:
                     self.snap, self.signature, self.version = snap, signature, self.version + 1
+                    self.sessions = sessions
                 self.snapshot_wanted.set()  # something new was recorded: maybe a reply with a link
             with self.lock:
                 self._match_sent()
@@ -473,6 +493,45 @@ class Console:
             except Exception as e:  # the next pass tries again
                 self.snapshot_error = f"couldn't save linked pages: {e}"
                 print(self.snapshot_error, flush=True)
+
+    # MARK: The task view
+
+    def task(self, task: str, day: str) -> dict:
+        """A task day's steps, rubric, grades and calendar (bench.taskview)."""
+        try:
+            return taskview.view(task, day, runs_dir=self.runs_dir, tasks_dir=self.tasks_dir,
+                                 grades_dir=self.grades_dir, calendar_dir=self.calendar_dir)
+        except taskview.TaskViewError as e:
+            raise ConsoleError(str(e)) from None
+
+    def grade(self, body: dict) -> dict:
+        """Saves your ranking of the agents' replies at one step."""
+        try:
+            return taskview.save_grade(body, self.runs_dir, self.grades_dir)
+        except taskview.TaskViewError as e:
+            raise ConsoleError(str(e)) from None
+
+    def mail(self, task: str, day: str, fresh: bool = False) -> dict:
+        """The task day's mail, read-only from Gmail (bench.mailview), kept for MAIL_SECONDS."""
+        if self.mail_reader is None:
+            raise ConsoleError("email is only read for the real inboxes")
+        try:
+            when = date.fromisoformat(day)
+        except ValueError:
+            raise ConsoleError("that's not a date") from None
+        key = (task, day)
+        with self.mail_lock:
+            cached = self.mail_cache.get(key)
+            if cached and not fresh and time.monotonic() - cached[0] < MAIL_SECONDS:
+                return cached[1]
+            try:
+                result = self.mail_reader(when, taskview.plants(task, self.tasks_dir))
+            except (mailview.MailError, OSError) as e:
+                raise ConsoleError(f"couldn't read Gmail: {e}") from None
+            except Exception as e:  # imaplib's own errors, a dropped connection
+                raise ConsoleError(f"couldn't read Gmail: {type(e).__name__}: {e}") from None
+            self.mail_cache[key] = (time.monotonic(), result)
+            return result
 
     def attachment_roots(self) -> list[Path]:
         return [p.parent.resolve() for p in self.inboxes.values()]
@@ -578,6 +637,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(403, "wrong or missing token; reload the page")
             since = query.get("since", [None])[0]
             return self._json(200, self.server.console.state(int(since) if since and since.isdigit() else None))
+        if url.path in ("/api/task", "/api/mail"):
+            if not self._token_ok():
+                return self._error(403, "wrong or missing token; reload the page")
+            task, day = (query.get(k, [""])[0] for k in ("task", "date"))
+            try:
+                if url.path == "/api/task":
+                    return self._json(200, self.server.console.task(task, day))
+                return self._json(200, self.server.console.mail(task, day, fresh=query.get("fresh", [""])[0] == "1"))
+            except ConsoleError as e:
+                return self._error(400, str(e))
         if url.path == "/attachment":
             if not self._cookie_ok():
                 return self._error(403, "reload the console first")
@@ -612,6 +681,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(200, {"jobs": [console.stop(str(body.get("job") or "")).public()]})
             if self.path == "/api/reset":
                 return self._json(200, {"reset": console.record_reset(body)})
+            if self.path == "/api/grade":
+                return self._json(200, {"grade": console.grade(body)})
         except ConsoleError as e:
             return self._error(400, str(e))
         return self._error(404, "not found")

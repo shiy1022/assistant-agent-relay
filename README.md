@@ -2,7 +2,7 @@
 
 Runs Assistant Bench tasks against personal agents from this Mac and records their replies.
 
-> **Now targeting Wajo and Instinct over WhatsApp.** See [../BUILD_PLAN_WHATSAPP.md](../BUILD_PLAN_WHATSAPP.md). The iMessage channel described below (`reader/`, `bench/imessage/send.py`) is built and tested but parked; you don't need to set it up.
+> **How each agent is reached (2026-11-07):** Wajo on wajo.ai, Muse on muse.ai and Hark on hark.com, each in the dedicated Chrome; Dots through Slack. Telegram and WhatsApp still work as `channel:` options in `config/agents.yaml`. The iMessage channel described below (`reader/`, `bench/imessage/send.py`) is built and tested but parked; you don't need to set it up.
 
 **Use the `telegram-whatsapp-channels` branch.** It's the newest; `main` is behind. How to get it: [Before you start](docs/connections/README.md#before-you-start).
 
@@ -100,6 +100,25 @@ Then `uv run bench send hark --file prompt.txt --listen 600` sends a prompt and 
 
 `uv run bench hark-import runs/<folder>` records a Hark run made before this channel existed, with the times it was observed. Import before the first sync, which would otherwise record those messages with the time it syncs.
 
+## Wajo and Muse, on their websites
+
+Since 2026-11-07, Fo is reached on wajo.ai and Muse on muse.ai, the way Hark is: in the same dedicated Chrome, by a fixed script that fills the agent's own message box, checks the text and clicks Send, and never presses anything else. In `config/agents.yaml` that's `channel: wajo` with `handle: "wajo.ai"`, and `channel: muse` with `handle: "muse.ai"`.
+
+```bash
+uv run bench wajo-login
+```
+
+```bash
+uv run bench muse-login
+```
+
+Each starts the dedicated Chrome if needed, waits while you sign in, and pins the account. `wajo-status` and `muse-status` check everything without sending. Then `bench send|run|listen|sync wajo` and `… muse` work as for the other channels, and so does the console.
+
+- **Wajo:** messages are read from the JSON wajo.ai's own page loads: its chat list and each chat's messages, with Wajo's IDs and server times. Every chat with Fo is recorded, including the ones Wajo makes from your Telegram conversation, from when the account was pinned. Sending types into one kept chat, which the first send starts. `uv run bench wajo-thread` lists the chats and chooses another, or `new`. Fo's tools and the Pages it makes are recorded with its answers, and Pages are saved as deliverables. Details: [docs/connections/wajo-web.md](docs/connections/wajo-web.md).
+- **Muse:** muse.ai's messages travel encrypted, so they're read from the copy muse.ai keeps of the main chat in the browser (its latest 40 messages, with Muse's IDs and times). The main chat is recorded, including Muse's own heads-ups. Its WhatsApp chat isn't. Details: [docs/connections/muse-web.md](docs/connections/muse-web.md).
+
+The code: [bench/channels/wajo.py](bench/channels/wajo.py), [bench/channels/muse.py](bench/channels/muse.py), and what they share with each other, [bench/channels/site.py](bench/channels/site.py).
+
 ## The console
 
 `bench dashboard` writes a snapshot. `bench console` is the same view, live in your browser, with a box to send messages from:
@@ -110,11 +129,21 @@ uv run bench console --open
 
 Leave it running while you use it. Ctrl-C stops it. Only this Mac can reach it, and the address it prints carries a token.
 
-- **To:** pick one agent or several. A message to several goes out on each channel at about the same time. Agents on the same channel, like Muse and Instinct, get it one after the other.
+**It opens on a task day:** every run of one task (run.json's `task`) that started on one date, like "Housewarming draft · Sat, Nov 7". The menu at the top picks another day, or **Everything recorded**.
+
+- **The agents side by side.** Each agent that ran the task has its own column, holding only that day's conversation, from its first run of the task on and on the channel it used. Older messages, like Muse's from October, aren't shown. Each column scrolls on its own. It has its own step list (CP1, Learning 1, …; ×2 means the step took two runs, as with a nudge) to jump to a step, and its own activity: what the console is sending or recording for that agent, with Stop.
+- **Steps.** **Whole day** shows everything. A step, like **CP3**, shows only that step in every column, with the grading bar above.
+- **Grading.** The bar shows the step's subjective question and rubric, read from the task sheet: the tab named after the task in `tasks/*.xlsx`, the row by the step's name in column A. Success criteria, functional grading and the prompt are there too, folded. In each column, the reply being graded is marked: by default the agent's last long reply at that step, counted as one reply even when the agent sent it as several messages. **Grade this one** on another reply moves the mark. **Rank the replies** 1 (best) to 4. Picking a rank another agent has swaps the two. Rankings and marks are saved as you click, in `data/grades/<task>/<date>/<step>.json`.
+- **Blind grading** hides the agents' names, colors, channels and Slack thread headers, and shuffles the columns, in a different order at each step. Sending is hidden meanwhile. Rankings are still saved under the real names. The replies themselves can still give an agent away, by its name or its links.
+- **Email** shows that day's mail that belongs to the task, read-only from Gmail over IMAP, with the app password `tasks/housewarming_plant.py` uses. It shows what was planted (by Message-ID, from the task's `plants.json`), mail from those senders and in their threads, and everything in Sent and Drafts from that day. Nothing else in the inbox is shown, and nothing is marked read. It's read again every minute, or with **Read again**. The code is [bench/mailview.py](bench/mailview.py).
+- **Calendar** shows the events created that day, from `data/calendar/<date>.json`. The console can't read Google Calendar itself, so Claude writes that file with its Calendar connector, as when the events were planted. Ask Claude to read it again for later changes. Without the file, only the planted events from the task's `calendar.json` show.
+- **To:** every column, unless you pick. A message to several goes out on each channel at about the same time: wajo.ai, muse.ai, hark.com and Slack each have their own lane, even though they share the dedicated Chrome. Agents on the same channel, like two on WhatsApp, get it one after the other.
 - **Message** sends it with `bench send … --listen`, recording replies for as long as you pick. Sending the next message ends the last one's listening, so you can keep the conversation going.
 - **Task run** runs `bench run` with the task, step and cell, and writes `runs/…/` as usual. A run is never cut short: messages for its channel wait for it. Stop ends it as Ctrl-C would.
-- **Sync** records what arrived while nothing was recording, as `bench sync` does.
-- **Record a reset** writes down a context reset you did, right after the message where it took effect, as `bench reset-log` does (below).
+- **Sync**, in an agent's column, records what arrived while nothing was recording, as `bench sync` does.
+- **Reset…**, in an agent's column, writes down a context reset you did, right after the message where it took effect, as `bench reset-log` does (below).
+
+A task's own files are found in `tasks/<folder>/`: the folder whose `run.json` names the task, or else the one named after the task's first word (`tasks/housewarming/` for "Housewarming draft"). The task view's code is [bench/taskview.py](bench/taskview.py).
 
 Each message is sent by running the same bench command you'd type, so the checks, locks and records are the same. Each job's prompt and output are kept in `data/console/<job>/`. If a send fails or you stop it partway, check the conversation before sending again: the message may have gone out anyway.
 
@@ -164,7 +193,7 @@ The channel inboxes (`data/inbox/<channel>/messages.jsonl`, and WhatsApp's in `~
 
 ## Context resets
 
-A reset mostly happens outside what the runner records: you ask the agent to forget, send it `/new`, or delete something on its website. So write each one down as soon as it's done, including attempts that didn't work, or later runs can't tell what the agent was told before. In the console, use **Record a reset**. Or:
+A reset mostly happens outside what the runner records: you ask the agent to forget, send it `/new`, or delete something on its website. So write each one down as soon as it's done, including attempts that didn't work, or later runs can't tell what the agent was told before. In the console, use **Reset…** in the agent's column. Or:
 
 ```bash
 uv run bench reset-log muse --how "Asked Muse to forget everything; you said yes from your phone" --after 3EB0B86206C514E4FAB2D0 --result "Says its memory is empty"
