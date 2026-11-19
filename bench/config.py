@@ -1,4 +1,4 @@
-"""Loads config/agents.yaml."""
+"""Loads shared agent settings and optional local agent entries."""
 
 import re
 from dataclasses import dataclass
@@ -8,6 +8,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
 AGENTS_FILE = ROOT / "config" / "agents.yaml"
+LOCAL_AGENTS_FILE = AGENTS_FILE.with_name("agents.local.yaml")
 INBOX_DIR = ROOT / "data" / "inbox"
 # Secrets and sessions stay outside the repo, readable only by you.
 PRIVATE_DIR = Path.home() / "Library" / "Application Support" / "agent-runner"
@@ -105,7 +106,11 @@ def load_agents(path: Path = AGENTS_FILE) -> dict[str, Agent]:
     defaults = data.get("defaults") or {}
     agents: dict[str, Agent] = {}
     seen: dict[tuple[str, str], str] = {}
-    for name, entry in (data.get("agents") or {}).items():
+    entries = data.get("agents") or {}
+    if path.resolve() == AGENTS_FILE and LOCAL_AGENTS_FILE.is_file():
+        local = yaml.safe_load(LOCAL_AGENTS_FILE.read_text()) or {}
+        entries = {**entries, **(local.get("agents") or {})}
+    for name, entry in entries.items():
         if not NAME.match(str(name)):
             raise ConfigError(f"agent name {name!r} must be lowercase letters, digits, - or _")
         entry = entry or {}

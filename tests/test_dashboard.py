@@ -1,6 +1,6 @@
 import base64
 import json
-from datetime import UTC, datetime
+from datetime import timedelta, UTC, datetime
 
 from bench import dashboard
 from bench.config import Agent
@@ -112,7 +112,7 @@ def test_typing_events_close_together_are_one_stretch(tmp_path):
 def test_runs_mark_where_they_began_for_their_agent(tmp_path):
     started = datetime(2026, 10, 24, 20, 57, 29).astimezone()  # run folders are named in local time
     snap = build(tmp_path, whatsapp=[
-        wa("new", "A", "hi", from_me=True, date="2026-10-25T03:40:34.000Z"),
+        wa("new", "A", "hi", from_me=True, date=dashboard.iso(started - timedelta(minutes=17))),  # before the run, in any zone
         wa("new", "B", "Plan a trip", from_me=True, date=dashboard.iso(started.replace(second=58))),
     ], runs=[
         (started.strftime("%Y%m%d-%H%M%S") + "-travel-day1-muse", {"task": "Travel", "step": "DAY 1", "agent": "muse"}),

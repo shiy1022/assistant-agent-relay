@@ -53,6 +53,9 @@ NO_HISTORY = {"progress.json"}
 AUDIO_TYPES = {"audio/webm": ".webm", "audio/ogg": ".ogg", "audio/mp4": ".m4a", "audio/mpeg": ".mp3", "audio/wav": ".wav"}
 
 
+AUDIO_OBJECT = re.compile(r"[A-Za-z0-9_.-]{1,80}-[a-f0-9]{32}\.(webm|ogg|m4a|mp3|wav)")
+
+
 class StudyError(Exception):
     pass
 
@@ -65,12 +68,6 @@ def participant_dir(pid: str, study_dir: Path = STUDY_DIR) -> Path:
     if not isinstance(pid, str) or not PARTICIPANT.fullmatch(pid):
         raise StudyError("the participant ID looks like P001")
     return study_dir / pid
-
-
-def _target(pid: str, path: str, pattern: re.Pattern, study_dir: Path) -> Path:
-    if not isinstance(path, str) or not pattern.fullmatch(path):
-        raise StudyError(f"can't save {path!r}: not one of the study's files")
-    return participant_dir(pid, study_dir) / path
 
 
 def _write(path: Path, text: str) -> None:
@@ -106,17 +103,45 @@ def _append_history(pid: str, lines: list[dict], study_dir: Path) -> None:
             f.write(json.dumps(line, ensure_ascii=False) + "\n")
 
 
+def result_payload(body: dict) -> tuple[str, dict | str | list]:
+    """Validate a study file and normalize it for the local or hosted store."""
+    path = body.get("path")
+    if "data" in body:
+        pattern, data = JSON_FILES, body["data"]
+        if not isinstance(data, dict):
+            raise StudyError("data must be a JSON object")
+        content = data | {"schema_version": SCHEMA_VERSION}
+    elif "text" in body:
+        pattern, content = TEXT_FILES, body["text"]
+        if not isinstance(content, str):
+            raise StudyError("text must be a string")
+    elif "append" in body:
+        pattern, content = APPEND_FILES, body["append"]
+        if not isinstance(content, list) or not all(isinstance(r, dict) for r in content):
+            raise StudyError("append must be a list of JSON objects")
+    else:
+        raise StudyError("send data, text or append")
+    if not isinstance(path, str) or not pattern.fullmatch(path):
+        raise StudyError("This is not one of the study's files.")
+    if pattern is TEXT_FILES and path.endswith(".jsonl"):
+        for n, line in enumerate(content.splitlines(), 1):
+            if line.strip():
+                try:
+                    json.loads(line)
+                except ValueError:
+                    raise StudyError(f"line {n} of {path} isn't JSON") from None
+    return path, content
+
+
 def save(body: dict, study_dir: Path = STUDY_DIR) -> dict:
     """Saves one file for a participant: {pid, path, data} for JSON, {pid, path, text} for Markdown
     and JSONL, {pid, path, append: [records]} for changes.jsonl. Returns {path, changed}."""
-    pid, path, by = body.get("pid"), body.get("path"), str(body.get("by") or "participant")[:40]
+    pid, by = body.get("pid"), str(body.get("by") or "participant")[:40]
+    path, content = result_payload(body)
+    target = participant_dir(pid, study_dir) / path
     at = now_iso()
     if "data" in body:
-        target = _target(pid, path, JSON_FILES, study_dir)
-        data = body["data"]
-        if not isinstance(data, dict):
-            raise StudyError("data must be a JSON object")
-        data = {"schema_version": SCHEMA_VERSION} | {k: v for k, v in data.items() if k != "schema_version"}
+        data = content
         before = {}
         if target.exists():
             try:
@@ -133,17 +158,7 @@ def save(body: dict, study_dir: Path = STUDY_DIR) -> dict:
             _append_history(pid, changes, study_dir)
         return {"path": path, "changed": len(changes)}
     if "text" in body:
-        target = _target(pid, path, TEXT_FILES, study_dir)
-        text = body["text"]
-        if not isinstance(text, str):
-            raise StudyError("text must be a string")
-        if path.endswith(".jsonl"):
-            for n, line in enumerate(text.splitlines(), 1):
-                if line.strip():
-                    try:
-                        json.loads(line)
-                    except ValueError:
-                        raise StudyError(f"line {n} of {path} isn't JSON") from None
+        text = content
         old = target.read_text() if target.exists() else None
         if old == text:
             return {"path": path, "changed": 0}
@@ -153,10 +168,7 @@ def save(body: dict, study_dir: Path = STUDY_DIR) -> dict:
                                "after": f"{len(text)} characters", "by": by}], study_dir)
         return {"path": path, "changed": 1}
     if "append" in body:
-        target = _target(pid, path, APPEND_FILES, study_dir)
-        records = body["append"]
-        if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
-            raise StudyError("append must be a list of JSON objects")
+        records = content
         target.parent.mkdir(parents=True, exist_ok=True)
         with target.open("a", encoding="utf-8") as f:
             for r in records:
@@ -167,9 +179,7 @@ def save(body: dict, study_dir: Path = STUDY_DIR) -> dict:
     raise StudyError("send data, text or append")
 
 
-def save_audio(body: dict, study_dir: Path = STUDY_DIR) -> dict:
-    """Saves one recorded voice answer: {pid, name, mime, b64}. Returns {path}."""
-    folder = participant_dir(body.get("pid"), study_dir) / "audio"
+def audio_payload(body: dict) -> tuple[str, str, bytes]:
     name = str(body.get("name") or "")
     if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", name):
         raise StudyError("name the recording with letters, digits, dots, dashes or underscores")
@@ -184,6 +194,13 @@ def save_audio(body: dict, study_dir: Path = STUDY_DIR) -> dict:
         raise StudyError("the recording is empty")
     if len(raw) > MAX_AUDIO:
         raise StudyError("the recording is too long; save it in parts")
+    return name, mime, raw
+
+
+def save_audio(body: dict, study_dir: Path = STUDY_DIR) -> dict:
+    """Saves one recorded voice answer: {pid, name, mime, b64}. Returns {path}."""
+    folder = participant_dir(body.get("pid"), study_dir) / "audio"
+    name, mime, raw = audio_payload(body)
     folder.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     target = folder / f"{name}-{stamp}{AUDIO_TYPES[mime]}"

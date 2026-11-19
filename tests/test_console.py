@@ -80,7 +80,6 @@ def test_refuses_what_bench_would_refuse_before_starting_anything(tmp_path):
     for body, error in [
         ({"agents": [], "text": "hi"}, "pick at least one agent"),
         ({"agents": ["nobody"], "text": "hi"}, "can't send to nobody"),
-        ({"agents": ["old"], "text": "hi"}, "can't send to old"),  # iMessage is parked
         ({"agents": ["wajo"], "text": "  \n"}, "the message is empty"),
         ({"agents": ["wajo"], "text": "x" * (console.MAX_TEXT + 1)}, "characters"),
         ({"agents": ["wajo"], "text": "hi", "listen": 99999}, "listen must be between"),
@@ -284,14 +283,14 @@ def test_sending_from_the_page(server):
     token = {"X-Console-Token": "s3cret-token"}
     origin = {"Origin": f"http://127.0.0.1:{server.server_address[1]}"}
     status, _, body = request(server, "POST", "/api/send", headers={**token, **origin},
-                              body={"agents": ["wajo", "dots"], "text": "hi", "listen": 0})
-    assert status == 200 and [j["agent"] for j in json.loads(body)["jobs"]] == ["wajo", "dots"]
+                              body={"agents": ["wajo", "dots", "old"], "text": "hi", "listen": 0})
+    assert status == 200 and [j["agent"] for j in json.loads(body)["jobs"]] == ["wajo", "dots", "old"]
     status, _, body = request(server, "POST", "/api/send", headers=token, body={"agents": ["wajo"], "text": ""})
     assert (status, json.loads(body)) == (400, {"error": "the message is empty"})
     wait_for(finished(*server.console.jobs))
     state = json.loads(request(server, "GET", "/api/state", headers=token)[2])
-    assert [j["state"] for j in state["jobs"]] == ["done", "done"]
-    assert [a["name"] for a in state["agents"]] == ["wajo", "muse", "instinct", "dots"]
+    assert [j["state"] for j in state["jobs"]] == ["done", "done", "done"]
+    assert [a["name"] for a in state["agents"]] == ["wajo", "muse", "instinct", "dots", "old"]
     assert state["dry_run"] is True and state["snapshot"]["agents"]
     again = json.loads(request(server, "GET", f"/api/state?since={state['version']}", headers=token)[2])
     assert again["snapshot"] is None  # nothing new was recorded
@@ -376,3 +375,20 @@ def test_the_task_view_grades_and_mail_from_the_page(make, tmp_path):
 def test_email_is_read_only_for_the_real_inboxes(make):
     with pytest.raises(ConsoleError, match="only read for the real inboxes"):
         make().mail("Housewarming draft", "2026-11-07")
+
+
+def test_imessage_send_matches_guid_and_skips_backfilled_messages(tmp_path):
+    inbox = tmp_path / "messages.jsonl"
+    c = Console(AGENTS, jobs_dir=tmp_path / "jobs",
+                inboxes={"imessage": inbox}, runs_dir=tmp_path / "runs")
+    job = Job("send", "send", "old", "imessage", "ping", state="running",
+              started_at="2026-10-25T04:00:00Z")
+    c.jobs = [job]
+    base = dict(kind="new", agent="old", is_from_me=True, text="ping",
+                emitted_at="2026-10-25T04:00:03Z")
+    inbox.write_text(
+        json.dumps(dict(base, guid="backfill", date="2026-10-25T03:00:00Z")) + "\n"
+        + json.dumps(dict(base, guid="fresh", date="2026-10-25T04:00:01Z")) + "\n"
+    )
+    c.refresh()
+    assert (job.sent_id, job.sent_at) == ("fresh", "2026-10-25T04:00:01Z")

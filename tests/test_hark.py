@@ -621,3 +621,101 @@ def test_hark_handles(raw):
 def test_hark_handle_must_be_hark_com():
     with pytest.raises(ConfigError, match="hark.com"):
         normalize_handle("hark.ai", "hark")
+
+
+def test_a_secure_screen_is_recorded_in_words_with_its_button_and_no_values():
+    # What Hark sends when it needs a sign-in or a card: a request with a screen, not a question.
+    ask = {"id": "a35a", "at": 1793136462503, "status": "waiting_for_input", "request": {
+        "requestId": "uir_1", "prompt": "Booking.com", "displayHint": "secure_screen", "screen": {
+            "state": "awaiting_input", "header": {"title": "Login", "icon_url": "https://icons.example/booking.ico"},
+            "components": [
+                {"type": "instructions", "text": "Enter your Booking.com credentials and we'll save them to your encrypted vault."},
+                {"type": "text_input", "id": "username", "label": "Email", "placeholder": "user@domain.com", "autocomplete": "username"},
+                {"type": "text_input", "id": "password", "label": "Password", "autocomplete": "current-password", "secret": True},
+                {"type": "choice", "label": "Google", "provider": "google", "screen": {"components": [{"type": "text_input", "label": "Email or phone"}]}},
+                {"type": "choice", "label": "Apple", "provider": "apple"}],
+            "primary_action": {"id": "submit", "label": "Login", "kind": "submit"}}}}
+    agent = SimpleNamespace(name="hark", handle="hark.com")
+    event = hark_module.ask_event("a35a", ask, agent)
+    assert event["text"] == ("Action required: Booking.com · Login\n"
+                             "Enter your Booking.com credentials and we'll save them to your encrypted vault.\n"
+                             "Fields: Email, Password\nOr continue with: Google, Apple\nButton: Login\n"
+                             "(Hark's secure screen; recorded, nothing entered)")
+    assert event["buttons"] == [[{"text": "Sign in to Booking.com", "kind": "secure_screen"}]]
+    assert event["hark_kind"] == "secure_screen" and event["date"] == hark_module.ms_time(1793136462503)
+    assert "autocomplete" not in event["text"] and "{" not in event["text"]
+
+    card = {"request": {"prompt": "Hark Wallet", "displayHint": "secure_screen", "screen": {
+        "header": {"title": "Add a card"}, "components": [{"type": "text_input", "label": "Card number", "secret": True}],
+        "primary_action": {"label": "Save card"}}}}
+    event = hark_module.ask_event("c1", card, agent)
+    assert event["text"].startswith("Action required: Hark Wallet · Add a card\nFields: Card number\nButton: Save card")
+    assert event["buttons"] == [[{"text": "Add a card", "kind": "secure_screen"}]]
+
+
+def test_a_closed_ask_is_recorded_as_closed_not_as_json():
+    agent = SimpleNamespace(name="hark", handle="hark.com")
+    event = hark_module.ask_event("a35a", {"id": "a35a825c", "at": 1793136462503}, agent)
+    assert event["text"] == "(Hark closed this request)" and event["hark_kind"] == "ask_closed" and "buttons" not in event
+    event = hark_module.ask_event("a35a", {"id": "a35a825c", "at": 1793136462503, "status": "resolved"}, agent)
+    assert event["text"] == "(Hark closed this request: resolved)"
+
+
+def test_history_pages_are_read_in_both_shapes_hark_has_served():
+    # Until 2026-10-28: messages by id plus a log for the order. Since then: a list, already ordered by time.
+    old = {"messages": {"b": {"id": "b", "role": "assistant", "timestamp": 2}, "a": {"id": "a", "role": "user", "timestamp": 1}},
+           "log": [{"kind": "message", "id": "a"}, {"kind": "window", "id": "w"}, {"kind": "message", "id": "b"}]}
+    new = {"messages": [{"id": "b", "role": "assistant", "timestamp": 2}, {"id": "a", "role": "user", "timestamp": 1}],
+           "older": {"hasMore": True, "cursor": {"id": "a", "createdAt": 1}}, "newer": {"hasMore": False}, "threads": []}
+    assert [m["id"] for m in hark_module.ordered(old)] == ["a", "b"]
+    assert [m["id"] for m in hark_module.ordered(new)] == ["a", "b"]
+    assert hark_module.ids(old) == hark_module.ids(new) == {"a", "b"}
+    assert hark_module.ordered({}) == [] and hark_module.ids({}) == set()
+
+
+def test_hark_announcements_are_notices_not_messages_from_me():
+    agent = SimpleNamespace(name="hark", handle="hark.com")
+    msg = {"id": "5e2f", "role": "user", "source": "announcement", "timestamp": 1793205900906,
+           "content": "Good news! I have a Mac app now, Hark Pro for macOS."}
+    event = hark_module.message_event(msg, agent)
+    assert event["is_from_me"] is False and event["service"] == "announcement"
+    assert event["text"].startswith("Good news!")
+    mine = hark_module.message_event({"id": "a1", "role": "user", "timestamp": 1, "content": "hi"}, agent)
+    assert mine["is_from_me"] is True and "service" not in mine
+
+
+def test_a_missing_message_box_makes_the_runner_reload_the_chat_once():
+    class Loc:
+        def __init__(self, n): self.n = n
+        def count(self): return self.n
+    class Page:
+        url = "https://hark.com/chat"
+        def __init__(self): self.loaded = []; self.boxes = 0
+        def get_by_role(self, role, name=None, exact=False): return Loc(self.boxes)
+        def locator(self, sel): return Loc(self.boxes)
+        def goto(self, url, **kw): self.loaded.append(url); self.boxes = 1
+        def wait_for_timeout(self, ms): pass
+    page = Page()
+    box = hark_module.message_box(page)
+    assert page.loaded == [CHAT_URL] and box.count() == 1
+    stuck = Page(); stuck.goto = lambda url, **kw: stuck.loaded.append(url)  # reload doesn't help
+    with pytest.raises(HarkError, match="found 0 message boxes"):
+        hark_module.message_box(stuck)
+    assert stuck.loaded == [CHAT_URL]
+    never = Page()
+    with pytest.raises(HarkError):
+        hark_module.message_box(never, reload=False)
+    assert never.loaded == []
+
+    project = Page()
+    project.url = "https://hark.com/project/example"
+    assert hark_module.message_box(project).count() == 1
+    assert project.loaded == [project.url]
+
+
+def test_sign_in_reveals_existing_signed_in_tab():
+    page = FakePage(responses={"/api/auth/get-session": {"user": USER}})
+    revealed = []
+    page.bring_to_front = lambda: revealed.append(True)
+    assert HarkWeb(browser=browser(page)).sign_in() is True
+    assert revealed == [True]

@@ -15,7 +15,7 @@ Each agent has two links, and either one can break:
 |---|---|---|---|---|
 | **Wajo (Fo)** | wajo.ai | The dedicated Chrome, signed in to Wajo | `uv run bench wajo-status` | [wajo-web.md](wajo-web.md) |
 | **Muse** | muse.ai | The dedicated Chrome, signed in to Muse | `uv run bench muse-status` | [muse-web.md](muse-web.md) |
-| **Instinct** | WhatsApp | The same bridge (not set up yet) | `uv run bench whatsapp-status` | [muse-instinct-whatsapp.md](muse-instinct-whatsapp.md#instinct-once-you-have-access) |
+| **Instinct** | iMessage or WhatsApp | Messages and bench-reader for iMessage, or the WhatsApp bridge | `uv run bench reader-status` or `uv run bench whatsapp-status` | [iMessage setup](../../README.md#set-up) · [WhatsApp setup](muse-instinct-whatsapp.md#instinct-once-you-have-access) |
 | **Dots** | Slack (PJTTY only) | A user token for reading, and the dedicated Chrome for sending | `uv run bench slack-status` | [dots-slack.md](dots-slack.md) |
 | **Hark** | hark.com | The dedicated Chrome, signed in to Hark | `uv run bench hark-status` | [hark.md](hark.md) |
 
@@ -33,21 +33,7 @@ Do this once on the Mac, before setting up any agent.
    brew install uv go
    ```
 
-2. **Get the code from the `telegram-whatsapp-channels` branch.** It's the newest. `main` doesn't have its fixes and docs yet. Clone it into a folder named `agent-runner`, which is the name these docs use:
-
-   ```bash
-   git clone -b telegram-whatsapp-channels https://github.com/shiy1022/assistant-agent-relay.git agent-runner
-   ```
-
-   If you already have a copy, switch it to that branch and update it, from `agent-runner/`. If `git switch` says there's no such branch, run `git fetch origin` first.
-
-   ```bash
-   git switch telegram-whatsapp-channels
-   ```
-
-   ```bash
-   git pull
-   ```
+2. **Check out the branch shared for your study.** Clone it into a folder named `agent-runner`, which is the name these docs use.
 
 3. **Google Chrome** in `/Applications`, for Dots and Hark. Your everyday Chrome is fine, and nothing else needs installing for the browser. See [the dedicated Chrome](dedicated-chrome.md#set-it-up-for-the-first-time).
 4. **Install agent-runner's Python packages,** from `agent-runner/`:
@@ -56,7 +42,7 @@ Do this once on the Mac, before setting up any agent.
    uv sync
    ```
 
-5. **Run the tests.** They use fakes and touch no real account. They also compile the parked iMessage reader, which needs Xcode's command line tools (`xcode-select --install` if `swiftc` is missing).
+5. **Run the tests.** They use fakes and touch no real account. They also compile the iMessage reader, which needs Xcode's command line tools (`xcode-select --install` if `swiftc` is missing).
 
    ```bash
    uv run pytest

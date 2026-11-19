@@ -6,3 +6,7 @@ data/
 runs/
 .DS_Store
 tasks/
+/config/agents.local.yaml
+.env
+.env.*
+supabase/.temp/

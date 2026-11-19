@@ -1,0 +1,96 @@
+{
+  "task": "Browser Smoke Test",
+  "title": "Study connection demo",
+  "cards": [
+    {
+      "id": "demo",
+      "title": "Demo dinner",
+      "covers": "A fictional dinner for testing the study website",
+      "example": "Dinner for four on Friday",
+      "first": "dinner",
+      "last": "demo"
+    }
+  ],
+  "fields": [
+    {
+      "id": "guests",
+      "label": "Guests"
+    },
+    {
+      "id": "budget",
+      "label": "Budget"
+    },
+    {
+      "id": "card_details",
+      "label": "Dinner details"
+    }
+  ],
+  "pre": [
+    {
+      "id": "lock",
+      "title": "Demo scenario",
+      "questions": [
+        {
+          "id": "intro",
+          "type": "info",
+          "text": "This is a demo session. Use it to check the study flow before loading the official questions."
+        },
+        {
+          "id": "card",
+          "type": "cards",
+          "text": "Select the demo scenario."
+        },
+        {
+          "id": "lock",
+          "type": "lock",
+          "text": "Lock the demo scenario."
+        }
+      ]
+    }
+  ],
+  "limits": {
+    "turns": 2,
+    "handoff_minute": 2,
+    "total_minute": 5
+  },
+  "chat_rules": [
+    "Use fictional information.",
+    "Send the opening to check that your connected agent can reply."
+  ],
+  "messages": {
+    "opening": "This is a Study connection demo. Please reply with pong only.",
+    "handoff": "Please acknowledge that the browser test is complete.",
+    "process": [
+      "Please briefly describe how you handled the demo message.",
+      "Please confirm the demo is complete."
+    ]
+  },
+  "after_agent": [
+    {
+      "id": "after",
+      "type": "info",
+      "text": "Check that the agent reply appeared in the study chat."
+    }
+  ],
+  "comparison": [
+    {
+      "id": "compare",
+      "type": "info",
+      "text": "Review the demo replies."
+    }
+  ],
+  "day1": [
+    {
+      "id": "done",
+      "type": "info",
+      "text": "This completes the Day 1 browser smoke test."
+    }
+  ],
+  "learning": [
+    {
+      "id": "learning",
+      "type": "info",
+      "text": "Review the Day 2 demo conversation."
+    }
+  ]
+}

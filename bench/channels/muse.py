@@ -183,6 +183,7 @@ class MuseWeb(SiteWeb):
         """Makes sure this Chrome is signed in to Muse, waiting while you sign in. True if it already was."""
         page = self.page()
         if self.signed_in():
+            page.bring_to_front()
             return True
         if not shows(page.url, HOME):
             page.goto(HOME, wait_until="domcontentloaded")

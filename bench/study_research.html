@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Study results</title>
+<style>
+  body { margin: 0; background: #f6f7fa; color: #202936; font: 16px/1.55 system-ui, sans-serif; }
+  header, main { max-width: 74rem; padding: 1.25rem; margin: auto; }
+  header { display: flex; justify-content: space-between; align-items: center; }
+  h1, h2, h3 { line-height: 1.2; }
+  .panel { background: white; border: 1px solid #dbe0e8; border-radius: 12px; padding: 1.4rem; }
+  form { max-width: 30rem; }
+  label { display: block; margin-bottom: .75rem; }
+  input { box-sizing: border-box; width: 100%; padding: .5rem; font: inherit; }
+  button { padding: .4rem .7rem; font: inherit; cursor: pointer; }
+  .err { color: #a52323; }
+  li { margin-bottom: .55rem; }
+  summary { cursor: pointer; overflow-wrap: anywhere; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f6f7fa; padding: 1rem; }
+</style>
+</head>
+<body>
+<header><h1>Study results</h1><button id="sign-out" hidden>Sign out</button></header>
+<main id="research"><div class="panel">Loading…</div></main>
+<script src="/study-auth.js"></script>
+<script>
+const panel = document.getElementById('research');
+const signOut = document.getElementById('sign-out');
+const append = (parent, tag, text) => {
+  const el = document.createElement(tag);
+  el.textContent = text;
+  parent.append(el);
+  return el;
+};
+
+async function boot(member) {
+  signOut.hidden = false;
+  signOut.onclick = () => studyAuth.signOut().catch(error => showError(error));
+  if (member.role !== 'researcher') {
+    panel.replaceChildren();
+    append(panel, 'p', 'Research team access is required.');
+    const link = append(panel, 'a', 'Open the participant study');
+    link.href = '/study';
+    return;
+  }
+  const { participants } = await studyAuth.api('/api/research/results');
+  panel.innerHTML = '<div class="panel"><h2>Participants</h2><ul></ul></div><section id="details"></section>';
+  const list = panel.querySelector('ul');
+  if (!participants.length) append(list, 'li', 'No study results yet.');
+  for (const participant of participants) {
+    const row = append(list, 'li', '');
+    const button = append(row, 'button', participant.pid);
+    const status = participant.submitted.length
+      ? ` · Submitted day ${participant.submitted.join(', ')}`
+      : ' · In progress';
+    append(row, 'span', participant.task ? `${status} · ${participant.task}` : status);
+    button.onclick = async () => {
+      button.disabled = true;
+      const details = document.getElementById('details');
+      details.replaceChildren();
+      try {
+        const url = `/api/research/${encodeURIComponent(participant.pid)}`;
+        const result = await studyAuth.api(url);
+        append(details, 'h2', result.pid);
+        const download = append(details, 'button', 'Download results (JSON)');
+        download.onclick = async () => {
+          download.disabled = true;
+          try {
+            const { history } = await studyAuth.api(`${url}/history`);
+            const blob = new Blob([JSON.stringify({ ...result, history }, null, 2)], { type: 'application/json' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = `${result.pid}-results.json`;
+            link.click();
+            setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+          } catch (error) {
+            append(details, 'p', error.message).className = 'err';
+          } finally {
+            download.disabled = false;
+          }
+        };
+        for (const [file, content] of Object.entries(result.files)) {
+          const item = append(details, 'details', '');
+          append(item, 'summary', file);
+          if (file.startsWith('audio/')) {
+            const audio = append(item, 'audio', '');
+            audio.controls = true;
+            audio.preload = 'none';
+            audio.src = `${url}/audio/${encodeURIComponent(file.slice(6))}`;
+          } else {
+            append(item, 'pre', typeof content === 'string' ? content : JSON.stringify(content, null, 2));
+          }
+        }
+      } catch (error) {
+        append(details, 'p', error.message).className = 'err';
+      } finally {
+        button.disabled = false;
+      }
+    };
+  }
+}
+
+function showError(error) {
+  if (error.status === 401) studyAuth.signIn(panel, 'Research team sign-in', boot);
+  else {
+    panel.replaceChildren();
+    append(panel, 'p', error.message).className = 'err';
+  }
+}
+studyAuth.api('/api/study/session').then(({ member }) => boot(member)).catch(showError);
+</script>
+</body>
+</html>

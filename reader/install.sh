@@ -7,6 +7,16 @@
 # Security → Full Disk Access: a rebuilt binary is a new build.
 set -euo pipefail
 
+no_open=false
+if [[ "${1:-}" == "--no-open" ]]; then
+  no_open=true
+  shift
+fi
+if [[ $# -gt 0 ]]; then
+  echo "Usage: install.sh [--no-open]" >&2
+  exit 64
+fi
+
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
 label="local.personal-agent-benchmark.bench-reader"
@@ -51,6 +61,11 @@ cat > "$plist" <<EOF
 EOF
 plutil -lint -s "$plist"
 launchctl bootstrap "$domain" "$plist"
+
+if $no_open; then
+  echo "bench-reader installed. Return to Study for the permission step."
+  exit 0
+fi
 
 cat <<EOF
 

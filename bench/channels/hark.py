@@ -180,7 +180,7 @@ class HarkWeb:
 
     def history(self, conversation_id: str, *, after: str | None = None, before: dict | None = None) -> dict:
         """The latest page of a thread, or the page after a message ID or before a message."""
-        params = {"conversationId": conversation_id, "v": 2, "after": after}
+        params = {"conversationId": conversation_id, "after": after}
         if before:
             params |= {"before": before["id"], "beforeCreatedAt": before["timestamp"]}
         return self.get("/api/messages/history", **params)
@@ -191,7 +191,7 @@ class HarkWeb:
 
     def draft(self) -> str:
         """What's in Hark's message box right now."""
-        return message_box(self.page(), self.selectors).input_value()
+        return message_box(self.page(), self.selectors, reload=False).input_value()
 
     def tab_url(self) -> str:
         """Where the Hark tab is."""
@@ -202,7 +202,7 @@ class HarkWeb:
         page = self.page()
         if not shows(page.url, url):
             try:
-                draft = message_box(page, self.selectors).input_value()
+                draft = message_box(page, self.selectors, reload=False).input_value()
             except HarkError:
                 draft = ""  # this page has no message box, so nothing is lost by leaving it
             if draft:
@@ -211,12 +211,14 @@ class HarkWeb:
             deadline = time.monotonic() + BOX_SECONDS
             while True:
                 try:
-                    message_box(page, self.selectors)
+                    message_box(page, self.selectors, reload=False)
                     break
                 except HarkError:
                     if time.monotonic() > deadline:
-                        raise
+                        break  # type_and_send gets one recovery attempt
                     sleep(0.5)
+        if not shows(page.url, url):
+            raise HarkError("Hark did not open the selected thread. Check the intended thread and try again.")
         type_and_send(page, text, self.selectors, self.sent_seconds)
 
     def sign_in(self, wait_seconds: float = 600, sleep: Callable[[float], None] = time.sleep,
@@ -224,6 +226,7 @@ class HarkWeb:
         """Makes sure this Chrome is signed in to Hark, waiting while you sign in. True if it already was."""
         page = self.page()
         if self.session(page):
+            page.bring_to_front()
             return True
         if not page.url.startswith(CHAT_URL):
             page.goto(CHAT_URL, wait_until="domcontentloaded")
@@ -241,10 +244,27 @@ class HarkWeb:
                         "in the dedicated Chrome, then try again.")
 
 
-def message_box(page, selectors: Selectors = Selectors()):
+def _find_box(page, selectors: Selectors):
     box = page.get_by_role("textbox", name=selectors.box_name, exact=True)
     if box.count() != 1:
         box = page.locator(selectors.box_fallback)
+    return box
+
+
+def message_box(page, selectors: Selectors = Selectors(), *, reload: bool = True):
+    """Hark's message box. If the tab shows no box (a hung or half-loaded page; seen 2026-11-01), the
+    chat page is loaded again once before giving up."""
+    box = _find_box(page, selectors)
+    if box.count() != 1 and reload and on_hark(page.url):
+        url = page.url
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=45000)
+            page.wait_for_timeout(4000)
+        except Exception:
+            pass
+        if not shows(page.url, url):
+            raise HarkError("Hark switched pages while reloading the chat. Check the intended thread and try again.")
+        box = _find_box(page, selectors)
     if box.count() != 1:
         raise HarkError(f"found {box.count()} message boxes on {page.url.split('?')[0]}, not one. "
                         "If the tab shows a sign-in page, run: uv run bench hark-login")
@@ -299,9 +319,22 @@ def ms_time(ms) -> str | None:
 
 
 def ordered(history: dict) -> list[dict]:
-    """A history page's messages, in the thread's order."""
+    """A history page's messages, in the thread's order.
+
+    hark.com has served two shapes: a dict of messages by id plus a "log" giving the order (until
+    2026-10-28), and since then a list already in order. Both are read."""
     messages = history.get("messages") or {}
+    if isinstance(messages, list):
+        return sorted((m for m in messages if isinstance(m, dict) and m.get("id")), key=lambda m: m.get("timestamp") or 0)
     return [messages[e["id"]] for e in history.get("log") or [] if e.get("kind") == "message" and e.get("id") in messages]
+
+
+def ids(history: dict) -> set[str]:
+    """The ids of a history page's messages, whichever shape the page has."""
+    messages = history.get("messages") or {}
+    if isinstance(messages, list):
+        return {m["id"] for m in messages if isinstance(m, dict) and m.get("id")}
+    return set(messages)
 
 
 def running(item: dict) -> bool:
@@ -319,18 +352,82 @@ def buttons(actions: list[dict] | None) -> list[list[dict]] | None:
     return [row] if row else None
 
 
+def ornament(presentation: dict | None) -> str | None:
+    """The caption Hark puts under a rich card (a table, an order summary), which isn't in `content`.
+
+    It lives at presentation.ornament or presentation.<kind>.ornament, like
+    {"kind": "table", "table": {"rows": …, "ornament": "I'd go with the Four Seasons."}}.
+    """
+    if not isinstance(presentation, dict):
+        return None
+    inner = presentation.get(presentation.get("kind") or "")
+    for holder in (presentation, inner if isinstance(inner, dict) else {}):
+        text = holder.get("ornament")
+        if isinstance(text, str) and text.strip():
+            return text.strip()
+    return None
+
+
+def card(presentation: dict | None) -> dict | None:
+    """The structured card behind a rich Hark message, trimmed to what the console draws: an order summary
+    (merchant, items, breakdown, total, how it's paid, the button's label), a table, or a titled summary.
+    Image addresses are left out. The button is recorded by its label only; it's never pressed."""
+    if not isinstance(presentation, dict):
+        return None
+    kind = presentation.get("kind")
+    inner = presentation.get(kind) if isinstance(presentation.get(kind), dict) else {}
+    text = lambda v: v.strip() if isinstance(v, str) and v.strip() else None
+    if kind == "order_summary":
+        action = inner.get("action") if isinstance(inner.get("action"), dict) else {}
+        out = {
+            "kind": kind,
+            "title": text(presentation.get("title")) or text(inner.get("merchant")),
+            "merchant": text(inner.get("merchant")),
+            "site": text(inner.get("site")),
+            "destination": text(inner.get("destination")),
+            "line_items": [{k: text(i.get(k)) for k in ("name", "qty", "price", "description") if text(i.get(k))}
+                           for i in inner.get("line_items") or [] if isinstance(i, dict)],
+            "breakdown": [{"label": text(b.get("label")), "amount": text(b.get("amount"))}
+                          for b in inner.get("breakdown") or [] if isinstance(b, dict) and text(b.get("label"))],
+            "total": text(inner.get("total")),
+            "payment": text(inner.get("payment")),
+            "ornament": text(inner.get("ornament")),
+            "action": text(action.get("label")),
+        }
+    elif kind == "table":
+        out = {
+            "kind": kind,
+            "title": text(presentation.get("title")) or text(inner.get("title")),
+            "columns": [str(c) for c in inner.get("columns") or []],
+            "rows": [[str(c) for c in r] for r in inner.get("rows") or [] if isinstance(r, list)],
+            "ornament": text(inner.get("ornament")),
+        }
+    elif kind == "summary":
+        out = {"kind": kind, "title": text(presentation.get("title")) or text(inner.get("title")),
+               "markdown": text(inner.get("markdown"))}
+    else:
+        return None
+    return {k: v for k, v in out.items() if v not in (None, [], "")}
+
+
 def message_event(msg: dict, agent: Agent, project: str | None = None) -> dict:
     """One Hark message in the shared event format, without kind and emitted_at.
     `project` is the Project's conversation ID, for a message that isn't in the main thread."""
     presentation = (msg.get("presentation") or {}).get("kind")
+    text = msg.get("content") or ""
+    caption = ornament(msg.get("presentation"))
+    if caption and caption not in text:
+        text = f"{text}\n\n{caption}" if text else caption
     event = {
         "channel": "hark",
         "agent": agent.name,
         "handle": agent.handle,
         "guid": f"hark:{msg['id']}",
         "message_id": msg["id"],
-        "is_from_me": msg.get("role") == "user",
-        "text": msg.get("content") or None,
+        "is_from_me": msg.get("role") == "user" and msg.get("source") != "announcement",
+        "service": "announcement" if msg.get("source") == "announcement" else None,
+        "card": card(msg.get("presentation")),
+        "text": text or None,
         "date": ms_time(msg.get("timestamp")),
         "rich": True if presentation and presentation != "text" else None,
         "buttons": buttons(msg.get("actions")),
@@ -342,18 +439,54 @@ def message_event(msg: dict, agent: Agent, project: str | None = None) -> dict:
     return {k: v for k, v in event.items() if v is not None}
 
 
+def screen_summary(request: dict) -> tuple[str, dict]:
+    """What a secure screen asks for (a sign-in, a card form), in words, and the button Hark shows for it.
+
+    Only labels are recorded: the screen's instructions, its fields' names and its sign-in choices. Never a value,
+    and nothing is ever entered. Hark sends these as request.displayHint "secure_screen" with request.screen."""
+    screen = request.get("screen") if isinstance(request.get("screen"), dict) else {}
+    site = request.get("prompt") if isinstance(request.get("prompt"), str) else None
+    title = (screen.get("header") or {}).get("title") if isinstance(screen.get("header"), dict) else None
+    parts = [c for c in (screen.get("components") or []) if isinstance(c, dict)]
+    instructions = [c["text"] for c in parts if c.get("type") == "instructions" and isinstance(c.get("text"), str)]
+    fields = [c["label"] for c in parts if c.get("type") not in ("instructions", "choice") and isinstance(c.get("label"), str)]
+    choices = [c["label"] for c in parts if c.get("type") == "choice" and isinstance(c.get("label"), str)]
+    primary = (screen.get("primary_action") or {}).get("label") if isinstance(screen.get("primary_action"), dict) else None
+    heading = " · ".join(dict.fromkeys(filter(None, [site, title])))  # Hark often repeats the title as the site
+    lines = [f"Action required: {heading}" if heading else "Action required: a secure screen"]
+    lines += instructions
+    if fields:
+        lines.append("Fields: " + ", ".join(fields))
+    if choices:
+        lines.append("Or continue with: " + ", ".join(choices))
+    if primary:
+        lines.append(f"Button: {primary}")
+    lines.append("(Hark's secure screen; recorded, nothing entered)")
+    is_login = "login" in (title or "").lower() or "sign in" in (title or "").lower()
+    label = f"Sign in to {site}" if is_login and site else (title or site or "Open")
+    return "\n".join(lines), {"text": label, "kind": "secure_screen"}
+
+
 def ask_event(ask_id: str, ask: dict, agent: Agent, project: str | None = None) -> dict:
     """A question or approval Hark is waiting on, as a message from Hark. Its options are recorded, never chosen."""
     text = next((ask[k] for k in ("question", "prompt", "title", "text", "message", "label") if isinstance(ask.get(k), str)), "")
     options = ask.get("options") or ask.get("choices") or []
     row = [{"text": o if isinstance(o, str) else str(o.get("label") or o.get("text") or o.get("value") or "?"), "kind": "option"}
            for o in options]
+    kind = "ask"
+    request = ask.get("request")
+    if not text and isinstance(request, dict) and (request.get("screen") or request.get("displayHint")):
+        text, button = screen_summary(request)
+        row, kind = [button], "secure_screen"
+    elif not text and not options and not set(ask) - {"id", "at", "status", "dispatchId", "dispatchedAt", "updatedAt"}:
+        # Hark trims an ask to its ids once it's answered or withdrawn: say so instead of dumping them.
+        text, kind = "(Hark closed this request" + (f": {ask['status']}" if isinstance(ask.get("status"), str) else "") + ")", "ask_closed"
     event = {
         "channel": "hark", "agent": agent.name, "handle": agent.handle,
         "guid": f"hark:ask:{ask_id}", "message_id": f"ask:{ask_id}", "is_from_me": False,
         "text": text or json.dumps(ask, ensure_ascii=False)[:2000],
-        "date": ms_time(ask.get("createdAt") or ask.get("timestamp")),
-        "rich": True, "buttons": [row] if row else None, "hark_kind": "ask", "project": project,
+        "date": ms_time(ask.get("createdAt") or ask.get("timestamp") or ask.get("at")),
+        "rich": True, "buttons": [row] if row else None, "hark_kind": kind, "project": project,
     }
     return {k: v for k, v in event.items() if v is not None}
 
@@ -571,7 +704,7 @@ class HarkChannel:
     def _gap(self, cid: str, thread: dict, latest: dict) -> bool:
         """Whether more arrived since last time than the latest page holds."""
         last = thread.get("last_id")
-        if not last or last in (latest.get("messages") or {}) or not (latest.get("older") or {}).get("hasMore"):
+        if not last or last in ids(latest) or not (latest.get("older") or {}).get("hasMore"):
             return False
         last_at = thread.get("last_at") or self._last_recorded_at(cid)
         page = ordered(latest)
@@ -584,7 +717,7 @@ class HarkChannel:
 
         Pages forward from that message. If Hark no longer has it, pages back from the
         latest page instead, until a page reaches back to when it was sent."""
-        in_latest = set(latest.get("messages") or {})
+        in_latest = ids(latest)
         caught_up, cursor = [], thread["last_id"]
         try:
             for _ in range(MAX_PAGES):
@@ -634,7 +767,7 @@ class HarkChannel:
         if cid not in self.threads():
             raise HarkError(f"the Project agent-runner sends to ({cid}) is archived or gone, so nothing was sent. "
                             "Choose another with: uv run bench hark-thread")
-        before = set(self.site.history(cid).get("messages") or {})
+        before = ids(self.site.history(cid))
         self.site.send(text, thread_url(cid, self.main))
         deadline = self.clock() + SENT_SECONDS
         while True:

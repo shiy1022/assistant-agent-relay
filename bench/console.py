@@ -62,7 +62,8 @@ JOBS_DIR = ROOT / "data" / "console"  # data/ is never committed
 TOKEN_FILE = PRIVATE_DIR / "console" / "token"
 TEMPLATE = Path(__file__).with_name("console.html")
 STUDY_TEMPLATE = Path(__file__).with_name("study.html")
-SENDABLE = ("telegram", "whatsapp", "slack", "hark", "wajo", "muse")  # iMessage is parked
+SENDABLE = ("telegram", "whatsapp", "slack", "hark", "wajo", "muse", "imessage")
+CONTINUOUS = {"whatsapp": "bench-whatsapp", "imessage": "bench-reader"}
 MAX_TEXT = 40_000          # characters in one message
 MAX_LISTEN = 3600          # seconds a message may keep recording after it's sent
 MAX_BODY = 1_000_000       # bytes in one request
@@ -232,8 +233,8 @@ class Console:
         agent = self.agents.get(name)
         if agent is None:
             raise ConsoleError(f"{name} isn't an agent with a handle in config/agents.yaml")
-        if agent.channel == "whatsapp":
-            raise ConsoleError("bench-whatsapp records WhatsApp all the time, so there's nothing to sync")
+        if agent.channel in CONTINUOUS:
+            raise ConsoleError(f"{CONTINUOUS[agent.channel]} records continuously, so there's nothing to sync")
         with self.lock:
             job = self._add(Job(id=self._new_id(name), kind="sync", agent=name, channel=agent.channel))
             self.lock.notify_all()
@@ -299,7 +300,7 @@ class Console:
                 "snapshot": None if since == self.version else self.snap,
                 "jobs": [j.public() for j in self.jobs[-200:]],
                 "agents": [{"name": a.name, "channel": a.channel, "quiet_period_seconds": a.quiet_period_seconds,
-                            "max_wait_seconds": a.max_wait_seconds, "can_sync": a.channel != "whatsapp"}
+                            "max_wait_seconds": a.max_wait_seconds, "can_sync": a.channel not in CONTINUOUS}
                            for a in self.agents.values()],
                 "dry_run": self.dry_run,
                 "now": now_iso(),
@@ -471,10 +472,17 @@ class Console:
                 continue
             since = parse(job.started_at) - SENT_SKEW
             for m in self._items(job.agent, job.channel):
-                if (m["type"] == "message" and m["from_me"] and m.get("id") is not None and m["id"] not in claimed
-                        and m.get("recorded") and parse(m["recorded"]) >= since and same_text(m.get("text"), job.text)):
-                    job.sent_at, job.sent_id = m["date"], m["id"]
-                    claimed.add(m["id"])
+                if m["type"] != "message" or not m["from_me"]:
+                    continue
+                message_id = m.get("id")
+                match_time = m.get("recorded")
+                if job.channel == "imessage":
+                    message_id = m.get("guid")
+                    match_time = m.get("date")  # the reader may backfill old sends
+                if (message_id is not None and message_id not in claimed and match_time
+                        and parse(match_time) >= since and same_text(m.get("text"), job.text)):
+                    job.sent_at, job.sent_id = m["date"], message_id
+                    claimed.add(message_id)
                     break
 
     def _watch(self) -> None:

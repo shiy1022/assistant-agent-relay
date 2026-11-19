@@ -11,7 +11,7 @@
 #             (bench hark-login), pinned the first time it's used
 #   wajo      wajo.ai: the same, for Fo's web app (bench wajo-login)
 #   muse      muse.ai: the same, for Muse's web app (bench muse-login)
-#   imessage  phone number or email (parked; bench-reader is compiled from these
+#   imessage  phone number or email (bench-reader is compiled from these
 #             handles, so changing one means reader/install.sh and re-approving it)
 # Agents left blank are skipped.
 

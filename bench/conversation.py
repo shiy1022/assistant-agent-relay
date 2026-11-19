@@ -187,8 +187,10 @@ def load(inboxes: dict[str, Path] | None = None, resets_file: Path | None = None
     inboxes = inboxes or {c: inbox_path(c) for c in CHANNELS}
     out: dict[str, list[dict]] = {}
     everything: list[dict] = []
-    for path in inboxes.values():
+    for channel, path in inboxes.items():
         events = Inbox(path).poll()
+        if channel == "imessage":
+            events = [dict(event, channel=channel) for event in events if event.get("service") in ("iMessage", None)]
         everything += events
         for name in {e["agent"] for e in events if e.get("agent")}:
             out.setdefault(name, []).extend(messages([e for e in events if e.get("agent") == name], path.parent))
